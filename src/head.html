@@ -455,6 +455,7 @@ body.tl-mode .side-bin .bin-head{flex-wrap:wrap}
 .helpmodal{width:min(860px,100%)}.help-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
 .help-grid h3{margin:0 0 8px;font:600 12px var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
 .help-grid dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:13px}.help-grid dd{margin:0;color:var(--ink)}.help-grid dt{white-space:nowrap}
+#guideBtn[aria-pressed=true]{border-color:var(--amber);color:var(--amber)}
 #lockBtn[aria-pressed=true]{border-color:var(--amber);color:var(--amber)}
 </style>
 
@@ -491,6 +492,7 @@ body.tl-mode .side-bin .bin-head{flex-wrap:wrap}
     <div class="stage-tools">
       <div class="add-group-btns" id="addTools"></div>
       <div class="out-btns">
+        <button class="btn" id="guideBtn" data-act="guides" aria-pressed="true" title="Show your crosshair and the points you place on the projectors while mapping">Guides on projector</button>
         <button class="btn" id="lockBtn" data-act="map-lock" aria-pressed="false" title="Stop surfaces and masks being dragged by accident during a show">Lock mapping</button>
         <button class="btn" data-act="room-layout" data-v="overlap" hidden title="Put every projector over the same area">Overlap all</button>
         <button class="btn" data-act="room-layout" data-v="row" hidden title="Place projectors next to each other">Side by side</button>

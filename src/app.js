@@ -49,6 +49,18 @@ function gridEval(g,u,v){
 function posAt(s,u,v){return s.warp==="grid"&&s.grid?gridEval(s.grid,u,v):homoPt(homog(s.pts),u,v);}
 function gridFromCorners(corners,c,r){const H=homog(corners),pts=[];for(let j=0;j<=r;j++)for(let i=0;i<=c;i++){const p=homoPt(H,i/c,j/r);pts.push([p[0],p[1],0]);}return{c,r,pts};}
 function regrid(s,c,r){const pts=[];for(let j=0;j<=r;j++)for(let i=0;i<=c;i++){const p=posAt(s,i/c,j/r);pts.push([p[0],p[1],0]);}s.grid={c,r,pts};}
+// Where a point sits inside a surface's content (u,v), the inverse of posAt. Corner warps invert exactly; grids use a few Newton steps.
+function homoInv(H,x,y){const[a,b,c,d,e,f,g,h]=H,A=e-f*h,B=c*h-b,C=b*f-c*e,D=f*g-d,E=a-c*g,F=c*d-a*f,G=d*h-e*g,Hh=b*g-a*h,I=a*e-b*d,w=G*x+Hh*y+I||1e-9;return[(A*x+B*y+C)/w,(D*x+E*y+F)/w];}
+function uvOf(s,x,y){let[u,v]=homoInv(homog(cornersOf(s)),x,y);if(!(s.warp==="grid"&&s.grid))return[u,v];
+  for(let k=0;k<10;k++){const p=posAt(s,u,v),e=1e-3,pu=posAt(s,u+e,v),pv=posAt(s,u,v+e),a=(pu[0]-p[0])/e,b=(pv[0]-p[0])/e,c=(pu[1]-p[1])/e,d=(pv[1]-p[1])/e,det=a*d-b*c;if(Math.abs(det)<1e-9)break;
+    const rx=x-p[0],ry=y-p[1];u+=(d*rx-b*ry)/det;v+=(-c*rx+a*ry)/det;if(Math.abs(rx)+Math.abs(ry)<1e-6)break;}return[u,v];}
+// After the outline grows past the content, stretch the content (keeping its warp) so the whole outline is filled.
+function fitWarpToShape(s){if(!s||!s.shape||s.shape.length<3)return false;
+  let u0=0,v0=0,u1=1,v1=1;for(const p of sampleOutline(s.shape)){const[u,v]=uvOf(s,p[0],p[1]);if(!isFinite(u)||!isFinite(v))continue;u0=Math.min(u0,u);v0=Math.min(v0,v);u1=Math.max(u1,u);v1=Math.max(v1,v);}
+  const pad=0.002;if(u0>=-pad&&v0>=-pad&&u1<=1+pad&&v1<=1+pad)return false;
+  if(s.warp==="grid"&&s.grid){const g=s.grid,pts=[];for(let j=0;j<=g.r;j++)for(let i=0;i<=g.c;i++){const q=gridEval(g,u0+(u1-u0)*i/g.c,v0+(v1-v0)*j/g.r);pts.push([q[0],q[1],0]);}s.grid={c:g.c,r:g.r,pts};}
+  else{const H=homog(s.pts);s.pts=[[u0,v0],[u1,v0],[u1,v1],[u0,v1]].map(([u,v])=>{const q=homoPt(H,u,v);return[q[0],q[1],0];});}
+  geomV++;return true;}
 function cornersOf(s){if(s.warp==="grid"&&s.grid){const g=s.grid;return[gridPt(g,0,0),gridPt(g,g.c,0),gridPt(g,g.c,g.r),gridPt(g,0,g.r)];}return s.pts;}
 function bbox(pts){const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);return[[x0,y0,0],[x1,y0,0],[x1,y1,0],[x0,y1,0]];}
 function sampleOutline(pts){
@@ -478,11 +490,31 @@ function projState(){
   if(rt.liveEdit&&rt.mode==="timeline")return{state:tl.surf,tp:false};
   const toTL=rt.outSrc==="timeline";return{state:toTL?tl.surf:rt.surf,tp:toTL?false:rt.testPattern};
 }
+// While mapping, the projectors also show your crosshair, the shape you're drawing and the selected piece's points,
+// so you can place points right on the set while watching the set.
+rt.ptr=null;rt.guides=(()=>{try{return localStorage.getItem("cuelight-guides")!=="0";}catch(e){return true;}})();
+function ptrLocal(o){if(!rt.ptr)return null;const ev={clientX:rt.ptr.x,clientY:rt.ptr.y};if(rt.room)return roomLocal(ev,o);return o.id===rt.out?toN(ev):null;}
+function drawProjGuides(o){
+  if(rt.mode!=="map"||!rt.guides)return;const d=oc[o.id];if(!d)return;const c=d.ctx,W=d.cv.width,H=d.cv.height,lw=Math.max(1.5,W/960);
+  const P=p=>[p[0]*W,p[1]*H],line=(pts,close)=>{c.beginPath();pts.forEach((p,i)=>{const[x,y]=P(p);i?c.lineTo(x,y):c.moveTo(x,y);});if(close)c.closePath();};
+  const stroke=(col,w,dash)=>{c.setLineDash(dash||[]);c.lineWidth=w+2*lw;c.strokeStyle="rgba(0,0,0,.75)";c.stroke();c.lineWidth=w;c.strokeStyle=col;c.stroke();c.setLineDash([]);};
+  const dot=(p,r,fill)=>{const[x,y]=P(p);c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fillStyle="#000";c.fill();c.beginPath();c.arc(x,y,r-lw,0,Math.PI*2);c.fillStyle=fill;c.fill();};
+  // selected piece: outline and its points
+  const so=selObj();if(so&&rt.sel.kind!=="group"&&so.outputId===o.id&&!rt.drawing){const arr=editArr()||so.pts;
+    line(rt.sel.kind==="mask"?outlineFor(so.pts):surfOutline(so),true);stroke(rt.sel.kind==="mask"?"#e5484d":"#f2a93b",lw*1.5,[8*lw,6*lw]);
+    arr.forEach((p,i)=>dot(p,6*lw,i===rt.selPt?"#fff":"#f2a93b"));}
+  // shape being drawn
+  if(rt.drawing&&o.id===rt.out){const dp=rt.drawing.pts,hv=rt.drawing.hover;if(dp.length){line(hv?[...dp,hv]:dp,false);stroke("#fff",lw*1.5);dp.forEach((p,i)=>dot(p,(i?5:8)*lw,i?"#fff":"#f2a93b"));}}
+  // crosshair
+  const q=ptrLocal(o);if(q&&q[0]>-0.02&&q[0]<1.02&&q[1]>-0.02&&q[1]<1.02){const[x,y]=P(q);
+    c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.moveTo(x,0);c.lineTo(x,H);stroke("rgba(255,255,255,.85)",lw);
+    c.beginPath();c.arc(x,y,14*lw,0,Math.PI*2);stroke("#f2a93b",lw*1.5);}
+}
 function draw(n){
   if(!gl)return;
   if(tlActive())tlStep(n);
   const ps=projState();
-  for(const o of show.outputs)drawOutput(o,n/1000,ps.state,oc[o.id]?.ctx,ps.tp);
+  for(const o of show.outputs){drawOutput(o,n/1000,ps.state,oc[o.id]?.ctx,ps.tp);drawProjGuides(o);}
   if(stageUsesPvc()){const o=curOut();if(pvc.width!==o.res[0]||pvc.height!==o.res[1]){pvc.width=o.res[0];pvc.height=o.res[1];}drawOutput(o,n/1000,previewActive()?rt.preview.surf:tl.surf,pvx,false);}
 }
 function drawThumbs(){
@@ -1296,8 +1328,10 @@ function hoverCursor(x,y,r){
     else if((editArr()||[]).some(p=>near(p[0],p[1],14)))cur="grab";}
   ov.style.cursor=cur;
 }
-ov.addEventListener("pointerleave",()=>{if(rt.drawing)rt.drawing.hover=null;});
-const endDrag=()=>{if(drag){drag=null;if(rt.mode==="map"){show.tour=show.tour||{};show.tour.fit=true;}save();}};
+ov.addEventListener("pointerleave",()=>{if(rt.drawing)rt.drawing.hover=null;rt.ptr=null;});
+ov.addEventListener("pointermove",e=>{rt.ptr={x:e.clientX,y:e.clientY};},{capture:true});
+const endDrag=()=>{if(drag){drag=null;if(rt.mode==="map"){show.tour=show.tour||{};show.tour.fit=true;
+  const so=rt.sel?.kind==="surface"?selObj():null;if(so&&so.shape&&fitWarpToShape(so))renderPanel();}save();}};
 ov.addEventListener("pointerup",endDrag);ov.addEventListener("pointercancel",endDrag);
 ov.addEventListener("dblclick",e=>{
   if(rt.mode!=="map"||rt.drawing||!editingOutline())return;
@@ -1660,7 +1694,7 @@ function sizeStage(){const f=frameEl;if(!f)return;
 window.addEventListener("resize",()=>sizeStage());
 function placeBin(){const tlm=rt.mode==="timeline",w=$("#binWrap"),side=$("#sideBin");if(!w||!side)return;document.body.classList.toggle("tl-mode",tlm);side.hidden=!tlm;
   if(tlm&&w.parentNode!==side)side.appendChild(w);else if(!tlm&&w.parentNode===side){const k=document.querySelector(".col .keys");k.parentNode.insertBefore(w,k);}sizeStage();}
-function syncLockBtn(){const b=$("#lockBtn");if(!b)return;b.setAttribute("aria-pressed",!!show.mapLocked);b.textContent=show.mapLocked?"🔒 Unlock mapping":"Lock mapping";b.hidden=rt.mode!=="map";}
+function syncLockBtn(){const g=$("#guideBtn");if(g){g.hidden=rt.mode!=="map";g.setAttribute("aria-pressed",!!rt.guides);}const b=$("#lockBtn");if(!b)return;b.setAttribute("aria-pressed",!!show.mapLocked);b.textContent=show.mapLocked?"🔒 Unlock mapping":"Lock mapping";b.hidden=rt.mode!=="map";}
 // Getting started: five steps from an empty show to a running one, ticked off as you do them.
 function tourSteps(){const tr=show.tour||{};
   const proj=DESK?show.outputs.some(o=>displayFor(o)):Object.values(outWins).some(w=>w&&!w.closed);
@@ -2089,6 +2123,7 @@ document.addEventListener("click",e=>{
     case"mode":rt.mode=b.dataset.v;rt.selPt=-1;rt.drawing=null;renderPanel();renderBin();break;
     case"go":go();break;
     case"panic":panic();break;
+    case"guides":rt.guides=!rt.guides;try{localStorage.setItem("cuelight-guides",rt.guides?"1":"0");}catch(e){}syncLockBtn();toast(rt.guides?"While mapping, the projectors show your crosshair and the points you're placing.":"Projector guides off: the projectors show only the content while you map.");break;
     case"map-lock":show.mapLocked=!show.mapLocked;save();syncLockBtn();toast(show.mapLocked?"Mapping locked: surfaces and masks can't be dragged by accident. Cues and the timeline still work.":"Mapping unlocked.");break;
     case"help":openHelp();break;
     case"help-close":closeHelp();break;
