@@ -589,7 +589,10 @@ function tlActive(){return rt.mode==="timeline"||rt.outSrc==="timeline"||tl.play
 function tlSeek(t){tl.t=clamp(t,0,T().duration);if(tl.playing){tl.t0=tl.t;tl.wall0=now();}}
 function tlPlay(from){if(from!=null)tl.t=clamp(+from||0,0,T().duration);if(tl.t>=T().duration-0.01)tl.t=0;tl.playing=true;tl.t0=tl.t;tl.wall0=now();ac();renderTLTransport();}
 function tlPause(){tl.playing=false;renderTLTransport();}
-function tlToggle(){tl.playing?tlPause():tlPlay();}
+function tlToggle(){if(tl.playing){tlPause();return;}
+  // Play sends the timeline to the projectors, unless you've chosen to keep them on the cue show and preview here.
+  if(rt.outSrc!=="timeline"&&!tl.previewOnly){rt.outSrc="timeline";showStage();renderPanel();toast("Playing on the projectors. Click “Projectors: showing timeline” to keep them on the cue show and only preview here.");}
+  tlPlay();}
 function clipOp(c,t){
   const local=t-c.start,end=c.start+c.dur;let op=c.level??1,trans=0,prog=1;
   const tin=Math.min(+c.tin||0,c.dur),ty=TRANS[c.ttype]?c.ttype:"xfade";
@@ -698,7 +701,7 @@ function renderTimeline(){
 }
 function renderTLTransport(){
   const p=$("#tlPlay");if(p)p.textContent=tl.playing?"⏸ Pause":"▶ Play";
-  const s=$("#tlSend");if(s){const on=rt.outSrc==="timeline";s.setAttribute("aria-pressed",on);s.textContent=on?"Projectors: showing timeline":"Projectors: showing cues";s.title=on?"Switch the projectors back to the cue show":"Send the timeline to the projectors";}
+  const s=$("#tlSend");if(s){const on=rt.outSrc==="timeline";s.setAttribute("aria-pressed",on);s.textContent=on?"Projectors: showing timeline":"Projectors: showing cues";s.title=on?"Switch the projectors back to the cue show; Play then only previews here":"Send the timeline to the projectors";}
 }
 function updateTL(){
   if(rt.mode!=="timeline")return;const ph=$("#tlPh"),tc=$("#tlTC");if(!ph)return;
@@ -1317,7 +1320,7 @@ function go(){
 let lastPanic=0;
 function panic(){
   const n=now(),hard=n-lastPanic<1200;lastPanic=n;
-  rt.active=[];const d=hard?0:1;if(rt.outSrc==="timeline"||tl.playing){tlPause();rt.outSrc="cues";showStage();}
+  rt.active=[];const d=hard?0:1;if(rt.outSrc==="timeline"||tl.playing){tlPause();rt.outSrc="cues";showStage();renderTLTransport();}
   show.surfaces.forEach(s=>rt.surf[s.id]&&tween(rt.surf[s.id],"level",0,d));
   if(hard)[...rt.audio].forEach(killAudio);else fadeAllAudio(0,d,true);
   toast(hard?"Hard stop. Everything is out.":"Panic: fading everything out. Press again for a hard stop.");
@@ -1859,7 +1862,7 @@ document.addEventListener("click",e=>{
     case"tl-dup":tlDup();break;
     case"tl-del":tlDel();break;
     case"tl-goto":{const c=tlClip(rt.tsel);if(c)tlSeek(c.start);break;}
-    case"tl-send":rt.outSrc=rt.outSrc==="timeline"?"cues":"timeline";renderTLTransport();showStage();renderPanel();toast(rt.outSrc==="timeline"?"Projectors now show the timeline.":"Projectors now show the cue show.");break;
+    case"tl-send":rt.outSrc=rt.outSrc==="timeline"?"cues":"timeline";tl.previewOnly=rt.outSrc!=="timeline";renderTLTransport();showStage();renderPanel();toast(rt.outSrc==="timeline"?"Projectors now show the timeline.":"Projectors now show the cue show.");break;
     case"tl-pick":rt.pick={tl:true};{const p=$("#picker");renderPicker();p.hidden=false;const r=b.getBoundingClientRect(),W=Math.min(420,window.innerWidth-24),H=p.offsetHeight;let x=r.left;if(x+W>window.innerWidth-12)x=window.innerWidth-12-W;let y=r.bottom+6;if(y+H>window.innerHeight-12)y=Math.max(12,r.top-6-H);p.style.left=Math.max(12,x)+"px";p.style.top=y+"px";p.style.width=W+"px";}break;
     case"wz-edit":{const c=show.cues[rt.playhead];if(c)wizOpen("edit",c,+b.dataset.i);break;}
     case"wz-addrow":{const c=show.cues[rt.playhead];if(c)wizOpen("addrow",c);break;}
@@ -2500,7 +2503,7 @@ function openProject(id,msg){
   if(hist.pending)commit();
   const sh=readProject(id);if(!sh){toast("That project couldn't be read from this browser.");return;}
   const n=closeAllOutputs();
-  proj.idx.current=id;saveIdx();hist.undo=[];hist.redo=[];hist.last=null;rt.views={};rt.preview=null;rt.cedit=null;tl.playing=false;tl.t=0;rt.tsel=null;rt.outSrc="cues";
+  proj.idx.current=id;saveIdx();hist.undo=[];hist.redo=[];hist.last=null;rt.views={};rt.preview=null;rt.cedit=null;tl.playing=false;tl.t=0;tl.previewOnly=false;rt.tsel=null;rt.outSrc="cues";
   loadShow(sh);proj.thumbAt=0;closeProjects();renderProjects();
   toast((msg||`Opened “${sh.name||"Untitled show"}”.`)+(n?" Reopen the output windows for this project's projectors.":""));
 }

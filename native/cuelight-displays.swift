@@ -2,6 +2,8 @@
 // so connecting a projector never needs a trip to System Settings.
 //   cuelight-displays list     -> JSON array of online displays (id, builtin, main, mirrorOf, inMirrorSet, width, height)
 //   cuelight-displays extend   -> stop mirroring: every screen becomes its own screen
+//   cuelight-displays warp X Y -> move the mouse pointer to X,Y (global points, top-left origin)
+//   cuelight-displays serve    -> keep running and read "warp X Y" lines from stdin (fast, no process start per move)
 import CoreGraphics
 import Foundation
 
@@ -45,7 +47,22 @@ func extend() -> Int32 {
 }
 
 let args = CommandLine.arguments
+func warp(_ x: Double, _ y: Double) -> Int32 {
+    guard CGWarpMouseCursorPosition(CGPoint(x: x, y: y)) == .success else { return 4 }
+    _ = CGAssociateMouseAndMouseCursorPosition(1)
+    return 0
+}
+
 switch args.count > 1 ? args[1] : "list" {
 case "extend": exit(extend())
+case "serve":
+    while let line = readLine() {
+        let p = line.split(separator: " ")
+        if p.count == 3, p[0] == "warp", let x = Double(p[1]), let y = Double(p[2]) { _ = warp(x, y) }
+    }
+    exit(0)
+case "warp":
+    guard args.count > 3, let x = Double(args[2]), let y = Double(args[3]) else { exit(5) }
+    exit(warp(x, y))
 default: exit(list())
 }

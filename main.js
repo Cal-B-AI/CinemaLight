@@ -33,7 +33,7 @@ function createWindow() {
   });
 
   // Projector output windows are opened by the page with window.open("", …). Links go to the browser.
-  // Output windows sent to a projector cover it completely (no menu bar, no separate Space on macOS).
+  // Output windows sent to a projector cover it completely and stay put.
   // Output windows belong to this page: close them when it reloads or the main window closes,
   // so an orphaned output never sits on a projector.
   const kids = new Set();
@@ -45,8 +45,24 @@ function createWindow() {
   win.webContents.on("did-create-window", (w, { frameName }) => {
     const did = pendingPlace.get(frameName); if (did == null) return; pendingPlace.delete(frameName);
     const d = scr().getAllDisplays().find(x => x.id === did); if (!d) return;
-    w.setBounds(d.bounds); w.setMenuBarVisibility(false);
-    if (process.platform === "darwin") w.setSimpleFullScreen(true); else w.setFullScreen(true);
+    // Cover the whole projector (menu bar and taskbar included) without becoming the active window,
+    // so the keyboard and mouse stay with the control screen.
+    w.setMenuBarVisibility(false);
+    w.setAlwaysOnTop(true, "screen-saver");
+    if (process.platform === "darwin") w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    w.setBounds(d.bounds);
+    placed.set(w, d.id); w.on("closed", () => placed.delete(w));
+    setTimeout(() => { if (win && !win.isDestroyed()) win.focus(); }, 150);
+  });
+  // Any output window that does get keyboard focus hands Esc and the show keys back to the control window.
+  win.webContents.on("did-create-window", w => {
+    w.webContents.on("before-input-event", (e, input) => {
+      if (input.type !== "keyDown") return;
+      if (["Escape", " ", "Space"].includes(input.key) || input.code === "Space") {
+        e.preventDefault();
+        if (win && !win.isDestroyed()) { win.focus(); win.webContents.sendInputEvent({ type: "keyDown", keyCode: input.key === "Escape" ? "Escape" : "Space" }); win.webContents.sendInputEvent({ type: "keyUp", keyCode: input.key === "Escape" ? "Escape" : "Space" }); }
+      }
+    });
   });
   // When the projector has a screen assigned, its window opens borderless and fullscreen on that screen.
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
@@ -57,7 +73,7 @@ function createWindow() {
         webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false } };
       if (d) {
         pendingPlace.set(frameName, d.id);
-        return { action: "allow", overrideBrowserWindowOptions: { ...base, ...d.bounds, frame: false, show: true, hasShadow: false, enableLargerThanScreen: true } };
+        return { action: "allow", overrideBrowserWindowOptions: { ...base, ...d.bounds, frame: false, show: true, hasShadow: false, enableLargerThanScreen: true, focusable: false } };
       }
       return { action: "allow", overrideBrowserWindowOptions: { ...base, width: 960, height: 540 } };
     }
@@ -120,6 +136,39 @@ ipcMain.handle("cl:extend", async () => {
 });
 ipcMain.handle("cl:open-display-settings", () => shell.openExternal(process.platform === "darwin" ? "x-apple.systempreferences:com.apple.Displays-Settings.extension" : "ms-settings:display"));
 
+/* ---------- keep the mouse on the control screen ----------
+   Projectors are output-only: when the pointer drifts onto a screen showing a projector output,
+   it's put straight back on the edge of the screen you're working on. */
+const placed = new Map(); // output window -> display id
+let guardOn = true, guardBusy = false, helperProc = null;
+function warpTo(x, y) {
+  x = Math.round(x); y = Math.round(y);
+  if (process.platform === "darwin") {
+    const h = helperPath(); if (!h) return;
+    if (!helperProc || helperProc.killed || helperProc.exitCode !== null) {
+      helperProc = require("child_process").spawn(h, ["serve"], { stdio: ["pipe", "ignore", "ignore"] });
+      helperProc.on("exit", () => { helperProc = null; });
+    }
+    try { helperProc.stdin.write(`warp ${x} ${y}\n`); } catch (e) { helperProc = null; }
+  } else if (process.platform === "win32" && !guardBusy) {
+    guardBusy = true;
+    const ps = `Add-Type -Name M -Namespace W -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);'; [W.M]::SetCursorPos(${x},${y})`;
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], { timeout: 4000, windowsHide: true }, () => { guardBusy = false; });
+  }
+}
+function guardTick() {
+  if (!guardOn || !placed.size || !win || win.isDestroyed()) return;
+  const S = scr(), p = S.getCursorScreenPoint();
+  const ctl = S.getDisplayMatching(win.getBounds());
+  const ids = new Set(placed.values()); if (ids.has(ctl.id)) return;
+  const on = S.getAllDisplays().find(d => ids.has(d.id) && p.x >= d.bounds.x && p.x < d.bounds.x + d.bounds.width && p.y >= d.bounds.y && p.y < d.bounds.y + d.bounds.height);
+  if (!on) return;
+  const b = ctl.bounds, m = 3;
+  warpTo(Math.min(Math.max(p.x, b.x + m), b.x + b.width - m - 1), Math.min(Math.max(p.y, b.y + m), b.y + b.height - m - 1));
+}
+setInterval(guardTick, 16);
+app.on("before-quit", () => { try { helperProc && helperProc.kill(); } catch (e) {} });
+
 function displaysChanged() { if (win && !win.isDestroyed()) win.webContents.send("cl:displays-changed"); }
 
 /* ---------- updates ---------- */
@@ -176,7 +225,9 @@ function buildMenu() {
       { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" }
     ] }] : [{ label: "File", submenu: [{ role: "quit" }] }]),
     { label: "Edit", submenu: [{ role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
-    { label: "View", submenu: [{ role: "togglefullscreen" }, { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }] },
+    { label: "View", submenu: [
+      { label: "Keep Mouse Off Projectors", type: "checkbox", checked: guardOn, click: m => { guardOn = m.checked; } },
+      { type: "separator" }, { role: "togglefullscreen" }, { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }] },
     { role: "windowMenu" },
     { label: "Help", submenu: [
       ...(mac ? [] : [{ label: "Check for Updates…", click: checkNow }]),
