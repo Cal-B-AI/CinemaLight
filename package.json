@@ -1,7 +1,7 @@
 {
   "name": "cuelight",
   "productName": "Cuelight",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Projection mapping with QLab-style cueing and a timeline editor.",
   "author": "Cinema Story Productions",
   "license": "UNLICENSED",
