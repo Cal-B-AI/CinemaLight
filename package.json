@@ -68,7 +68,8 @@
           "from": "build/helpers/cuelight-displays",
           "to": "cuelight-displays"
         }
-      ]
+      ],
+      "x64ArchFiles": "Contents/Resources/cuelight-displays"
     },
     "dmg": {
       "title": "Cuelight ${version}"
