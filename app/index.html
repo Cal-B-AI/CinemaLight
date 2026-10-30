@@ -396,6 +396,12 @@ kbd{font:500 11px var(--f-mono);border:1px solid var(--line);border-bottom-width
 .mv-cv{display:block;width:100%;background:#000;border-radius:3px;overflow:hidden}.mv-cv canvas{display:block;width:100%;height:100%}
 .mv-tile.add{place-content:center;justify-items:center;min-height:120px;border-style:dashed;color:var(--mute)}
 #roomArrBtn[aria-pressed=true]{border-color:var(--amber);color:var(--amber)}
+.scrmodal{width:min(560px,100%);display:flex;flex-direction:column;gap:12px}
+.scr-list{display:flex;flex-direction:column;gap:8px}
+.scr-card{display:flex;gap:8px;align-items:stretch}
+.scr-main{flex:1;display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--raise);border:1px solid var(--line);border-radius:6px;padding:12px 14px;color:var(--ink);cursor:pointer;text-align:left;font:inherit}
+.scr-main:hover,.scr-main:focus-visible{border-color:var(--amber)}.scr-main span{color:var(--mute);font-family:var(--f-mono);font-size:12px}
+.scr-empty{border:1px dashed var(--line);border-radius:6px;padding:14px}
 </style>
 
 <header class="top">
@@ -2075,9 +2081,10 @@ function mapPanel(){
   const so=selObj(),surfs=onOut(show.surfaces),masks=onOut(show.masks);
   let h=`<div class="sec"><div class="sec-head"><h3>Projector · ${esc(o.name)}</h3></div>
     <div class="field"><label for="of-name">Name</label><input id="of-name" type="text" data-of="name" value="${esc(o.name)}"></div>
-    <div class="field"><label for="res">Resolution</label><select id="res">${RESOLUTIONS.map(([w,hh])=>opt(w+"x"+hh,`${w} × ${hh}`,o.res.join("x"))).join("")}</select></div>
-    <div class="btns"><button class="btn" data-act="output">Open output window</button><button class="btn ghost danger" data-act="delete" data-kind="output" data-id="${o.id}">Delete projector</button></div>
-    <p class="note">Match the projector's native resolution. Double-click any name to rename it, or use the pencil and trash icons that appear when you point at a row.</p></div>
+    <div class="field"><label for="res">Resolution</label><select id="res">${(RESOLUTIONS.some(r=>r.join("x")===o.res.join("x"))?RESOLUTIONS:[o.res,...RESOLUTIONS]).map(([w,hh])=>opt(w+"x"+hh,`${w} × ${hh}`,o.res.join("x"))).join("")}</select></div>
+    ${DESK?screenField(o):""}
+    <div class="btns"><button class="btn" data-act="output">${DESK&&displayFor(o)?"Show on "+esc(displayFor(o).label):"Open output window"}</button><button class="btn ghost danger" data-act="delete" data-kind="output" data-id="${o.id}">Delete projector</button></div>
+    <p class="note">${DESK?"Each projector shows up as a screen once it's plugged in and set to Extended in your display settings. Pick it above and Cuelight fills it automatically, every time you open this show.":"Match the projector's native resolution."} Double-click any name to rename it, or use the pencil and trash icons that appear when you point at a row.</p></div>
   <div class="sec"><div class="sec-head"><h3>Surfaces on ${esc(o.name)}</h3><div class="acts">
     ${menuHTML("surf")}</div></div>
   <ul class="list">${surfs.map(s=>{const r=rt.surf[s.id];const top=r?.players[r.players.length-1];
@@ -2405,11 +2412,15 @@ document.addEventListener("click",e=>{
     case"testpattern":rt.testPattern=!rt.testPattern;syncTP();break;
     case"fullscreen":fullscreen();break;
     case"output":openOutput(rt.out);break;
+    case"scr-pick":{const d=displays.find(x=>String(x.id)===b.dataset.id);if(d)addProjectorOn(d);break;}
+    case"scr-plain":closeScreenPicker();{const o={id:uid(),name:"Projector "+(show.outputs.length+1),res:[1920,1080]};show.outputs.push(o);ensureOutputs();rt.mode="map";setOut(o.id);save();toast(`${o.name} added without a screen. Pick its screen in the panel on the right when it's connected.`);}break;
+    case"scr-close":closeScreenPicker();break;
+    case"scr-id":if(DESK)DESK.identify(+b.dataset.id);break;
     case"out":setOut(b.dataset.id);break;
     case"room":setRoom(!rt.room);break;
     case"room-arrange":rt.roomArrange=!rt.roomArrange;syncRoomTools();renderPanel();break;
     case"room-layout":roomLayout(b.dataset.v);break;
-    case"add-out":{const o={id:uid(),name:"Projector "+(show.outputs.length+1),res:[1920,1080]};show.outputs.push(o);ensureOutputs();rt.mode="map";setOut(o.id);save();toast(`${o.name} added. Add surfaces to it, then open its output window.`);break;}
+    case"add-out":if(DESK){openScreenPicker();break;}{const o={id:uid(),name:"Projector "+(show.outputs.length+1),res:[1920,1080]};show.outputs.push(o);ensureOutputs();rt.mode="map";setOut(o.id);save();toast(`${o.name} added. Add surfaces to it, then open its output window.`);break;}
     case"show-file":$("#showJson").value=JSON.stringify(show,null,1);$("#modalTitle").textContent="Show text";$("#modal").hidden=false;break;
     case"projects":openProjects();break;
     case"pj-close":closeProjects();break;
@@ -2557,6 +2568,7 @@ document.addEventListener("input",e=>{
 });
 document.addEventListener("change",e=>{
   const t=e.target;
+  if(t.id==="scr-sel"){setScreen(curOut(),t.value?displays.find(d=>String(d.id)===t.value):null);return;}
   if(t.id==="res"){curOut().res=t.value.split("x").map(Number);ensureOutputs();showStage();renderTabs();save();}
   if(t.id==="addCue"&&t.value){addCue(t.value);}
   if(t.id==="addSurf"&&t.value){const v=t.value;t.value="";
@@ -2771,7 +2783,7 @@ function onKey(e){
     if(e.key==="Enter"){e.preventDefault();finishDrawing();return;}
     if(e.key==="Backspace"){e.preventDefault();rt.drawing.pts.pop();renderPanel();return;}
   }
-  if(e.key==="Escape"){e.preventDefault();if(rt.wiz){wizClose();return;}if(!$("#projModal").hidden&&$("#confirm").hidden){closeProjects();return;}if(!$("#picker").hidden){closePicker();return;}if(!$("#confirm").hidden){closeConfirm();return;}if(!$("#modal").hidden){$("#modal").hidden=true;return;}if([...document.querySelectorAll(".menu")].some(m=>!m.hidden)){closeMenus();return;}panic();return;}
+  if(e.key==="Escape"){e.preventDefault();if(rt.wiz){wizClose();return;}if($("#scrModal")&&!$("#scrModal").hidden){closeScreenPicker();return;}if(!$("#projModal").hidden&&$("#confirm").hidden){closeProjects();return;}if(!$("#picker").hidden){closePicker();return;}if(!$("#confirm").hidden){closeConfirm();return;}if(!$("#modal").hidden){$("#modal").hidden=true;return;}if([...document.querySelectorAll(".menu")].some(m=>!m.hidden)){closeMenus();return;}panic();return;}
   if(rt.wiz){if(e.key==="Enter"&&!typing){e.preventDefault();if(rt.wiz.step<3){if(rt.wiz.step===1||wizSelCount(rt.wiz))rt.wiz.step++;renderWiz();}else wizCommit();}return;}
   if(typing)return;
   if(rt.mode==="timeline"&&!e.metaKey&&!e.ctrlKey){
@@ -2819,7 +2831,7 @@ function fullscreen(){
   try{const p=fn.call(el);p&&p.catch&&p.catch(()=>toast("Fullscreen was blocked here. Try the standalone file."));}catch(e){toast("Fullscreen was blocked here.");}
 }
 const outWins={};
-function openOutput(id){
+function openOutput(id,opts={}){
   const o=output(id);if(!o)return;
   if(outWins[id]&&!outWins[id].closed){outWins[id].focus();return;}
   let w=null;try{w=window.open("","cuelight_out_"+id,"popup,width=960,height=540");}catch(e){}
@@ -2829,13 +2841,63 @@ function openOutput(id){
   d.body.style.cssText="margin:0;background:#000;overflow:hidden;cursor:none";d.body.innerHTML="";
   const v=d.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.style.cssText="position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;background:#000";
   v.srcObject=cv.captureStream(60);d.body.appendChild(v);v.play().catch(()=>{});
+  const placed=!!(DESK&&displayFor(o));
   const tip=d.createElement("div");tip.textContent=`${o.name}: drag this window to that projector, then click here to go fullscreen.`;
   tip.style.cssText="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font:600 18px system-ui,sans-serif;color:#f2a93b;background:rgba(0,0,0,.75);padding:14px 18px;border:1px solid #f2a93b;border-radius:6px;cursor:pointer;max-width:80vw;text-align:center";
-  d.body.appendChild(tip);
-  d.addEventListener("click",()=>{tip.remove();const r=d.documentElement;(r.requestFullscreen||r.webkitRequestFullscreen)?.call(r);});
+  if(!placed)d.body.appendChild(tip);
+  if(!placed)d.addEventListener("click",()=>{tip.remove();const r=d.documentElement;(r.requestFullscreen||r.webkitRequestFullscreen)?.call(r);});
   d.addEventListener("keydown",onKey);
-  outWins[id]=w;toast(`${o.name} output window open. Keep this control window visible while running the show.`);
+  outWins[id]=w;if(!opts.quiet)toast(placed?`${o.name} is showing on ${displayFor(o).label}.`:`${o.name} output window open. Keep this control window visible while running the show.`);
 }
+
+/* ---------- desktop app: projectors are screens ---------- */
+const DESK=window.cuelightDesktop||null;let displays=[];
+async function refreshDisplays(){if(!DESK)return displays;try{displays=await DESK.displays();}catch(e){displays=[];}return displays;}
+function displayFor(o){const s=o&&o.screen;if(!s)return null;return displays.find(d=>d.id===s.id)||displays.find(d=>d.label===s.label&&d.width===s.w&&d.height===s.h)||null;}
+function usedBy(d){return show.outputs.find(o=>displayFor(o)===d)||null;}
+function screenField(o){const cur=displayFor(o);
+  const opts=displays.filter(d=>!d.primary||d===cur).map(d=>{const u=usedBy(d);return`<option value="${d.id}" ${d===cur?"selected":""}>${esc(d.label)} · ${d.width}×${d.height}${u&&u!==o?` (used by ${esc(u.name)})`:""}</option>`}).join("");
+  const missing=o.screen&&!cur?`<option value="" selected>${esc(o.screen.label)} (not connected)</option>`:"";
+  return`<div class="field"><label for="scr-sel">Screen</label><div class="inline"><select id="scr-sel">${missing}<option value="" ${!o.screen?"selected":""}>None — open as a window</option>${opts}</select>${cur?`<button class="btn ghost" data-act="scr-id" data-id="${cur.id}" title="Flash this projector's name on its screen">Identify</button>`:""}</div></div>`;}
+async function setScreen(o,d){
+  try{outWins[o.id]?.close();}catch(e){}delete outWins[o.id];
+  if(!d){delete o.screen;await DESK.assign(o.id,null);save();renderPanel();toast(`${o.name} no longer has a screen. Use Open output window to show it anywhere.`);return;}
+  const other=usedBy(d);if(other&&other!==o){delete other.screen;try{outWins[other.id]?.close();}catch(e){}delete outWins[other.id];await DESK.assign(other.id,null);}
+  o.screen={id:d.id,label:d.label,w:d.width,h:d.height};const resChanged=o.res[0]!==d.width||o.res[1]!==d.height;o.res=[d.width,d.height];
+  ensureOutputs();showStage();renderTabs();save();await DESK.assign(o.id,d.id);openOutput(o.id,{quiet:true});renderPanel();
+  toast(`${o.name} is showing on ${d.label}${resChanged?` and now matches its ${d.width}×${d.height} resolution`:""}.${other&&other!==o?` ${other.name} was moved off that screen.`:""}`);}
+function uniqueName(n){let k=n,i=2;while(show.outputs.some(o=>o.name===k))k=`${n} ${i++}`;return k;}
+async function addProjectorOn(d){closeScreenPicker();
+  const o={id:uid(),name:uniqueName(d.label),res:[d.width,d.height],screen:{id:d.id,label:d.label,w:d.width,h:d.height}};
+  show.outputs.push(o);ensureOutputs();rt.mode="map";setOut(o.id);
+  // Start with one surface covering the whole picture, so the projector lights up straight away and you only drag its corners onto the set.
+  const sf=newSurface(o.name+" surface");sf.pts=[[0.04,0.04,0],[0.96,0.04,0],[0.96,0.96,0],[0.04,0.96,0]];selectItem("surface",sf);geomV++;
+  rt.testPattern=true;syncTP();renderTabs();renderPanel();save();
+  await DESK.assign(o.id,d.id);openOutput(o.id,{quiet:true});
+  toast(`${o.name} is set up at ${d.width}×${d.height} and filling that projector with a test grid. Drag the surface's corners until the grid sits on your set piece.`);}
+let scrUnsub=null;
+async function openScreenPicker(){let m=$("#scrModal");
+  if(!m){m=document.createElement("div");m.className="modal-bg";m.id="scrModal";m.innerHTML=`<div class="modal scrmodal" role="dialog" aria-modal="true" aria-labelledby="scrTitle"><div class="wz-head"><h2 id="scrTitle">Add a projector</h2><button class="btn ghost" data-act="scr-close" aria-label="Close">✕</button></div><div id="scrBody"></div></div>`;document.body.appendChild(m);}
+  m.hidden=false;await renderScreenPicker();}
+function closeScreenPicker(){const m=$("#scrModal");if(m)m.hidden=true;}
+async function renderScreenPicker(){const m=$("#scrModal");if(!m||m.hidden)return;await refreshDisplays();
+  const free=displays.filter(d=>!d.primary&&!usedBy(d)),taken=displays.filter(d=>!d.primary&&usedBy(d)),me=displays.find(d=>d.primary);
+  const card=d=>`<div class="scr-card"><button class="scr-main" data-act="scr-pick" data-id="${d.id}"><b>${esc(d.label)}</b><span>${d.width} × ${d.height}${d.internal?" · built-in":""}</span></button><button class="btn ghost" data-act="scr-id" data-id="${d.id}" title="Flash its name on that screen">Identify</button></div>`;
+  $("#scrBody").innerHTML=(free.length?`<p class="note" style="margin-top:0">Pick the projector to add. Cuelight names it, matches its resolution and fills that screen with the test pattern, ready for you to map.</p><div class="scr-list">${free.map(card).join("")}</div>`
+    :`<div class="scr-empty"><b>No projector found yet.</b><p class="note">Connect it with HDMI or USB-C and turn it on. Then, in ${navigator.platform.startsWith("Mac")?"System Settings → Displays":"Settings → System → Display"}, set it to <b>Extend</b> (not Mirror). This list updates as soon as it appears.</p></div>`)
+    +(taken.length?`<p class="note">Already in use: ${taken.map(d=>`${esc(d.label)} (${esc(usedBy(d).name)})`).join(", ")}.</p>`:"")
+    +(me?`<p class="note">${esc(me.label)} is where Cuelight runs, so it isn't offered as a projector.</p>`:"")
+    +`<div class="btns" style="justify-content:space-between"><button class="btn ghost" data-act="scr-plain">Add without a screen</button><button class="btn" data-act="scr-close">Cancel</button></div>`;}
+// Reopen outputs whose projector is connected; close ones whose screen went away so they never land on the control screen.
+async function syncScreens(auto){if(!DESK)return;await refreshDisplays();const opened=[],lost=[];
+  for(const o of show.outputs){const d=displayFor(o),open=outWins[o.id]&&!outWins[o.id].closed;
+    if(d){if(o.screen.id!==d.id)o.screen.id=d.id;await DESK.assign(o.id,d.id);if(!open&&auto){openOutput(o.id,{quiet:true});opened.push(o.name===d.label?o.name:`${o.name} → ${d.label}`);}}
+    else{await DESK.assign(o.id,null);if(o.screen&&open){try{outWins[o.id].close();}catch(e){}delete outWins[o.id];lost.push(o.name);}}}
+  if(lost.length)toast(`${lost.join(", ")} lost ${lost.length===1?"its":"their"} screen, so ${lost.length===1?"its output is":"their outputs are"} closed. ${lost.length===1?"It reopens":"They reopen"} when the projector is back.`);
+  else if(opened.length)toast(`Projectors on: ${opened.join(", ")}.`);
+  renderScreenPicker();if(rt.mode==="map")renderPanel();}
+if(DESK)window.addEventListener("beforeunload",()=>closeAllOutputs());
+if(DESK)DESK.onDisplaysChanged(()=>{clearTimeout(window.__scrT);window.__scrT=setTimeout(()=>syncScreens(true),600);});
 
 /* ---------- toast + boot ---------- */
 let toastT=0,toastFn=null;
@@ -2968,6 +3030,7 @@ function loadShow(s){
   const first=onOut(show.surfaces)[0];if(first)selectItem("surface",first);
   $("#showName").value=show.name||"";showStage();renderTabs();syncTP();save();renderBin();renderPanel();
   if(typeof restoreFiles==="function"&&IDB_READY)restoreFiles().then(()=>updateStorageNote());
+  if(DESK&&IDB_READY){closeAllOutputs();syncScreens(true);}
 }
 let IDB_READY=false;
 let lastUI=0,scrubbing=false,scrubT=0;
@@ -2986,7 +3049,7 @@ function frame(){
 $("#addTools").innerHTML=menuHTML("surf")+menuHTML("mask");
 loadShow(loadStored());hist.undo=[];hist.redo=[];
 if(!gl)toast("This browser couldn't start WebGL, so the stage can't render.");
-IDB_READY=true;restoreFiles().then(left=>{if(left)toast(`${left} file${left===1?"":"s"} couldn't be found in this browser. They're marked “Missing” in the library; re-add them from there.`);pruneFiles();updateStorageNote();});
+IDB_READY=true;if(DESK)syncScreens(true);restoreFiles().then(left=>{if(left)toast(`${left} file${left===1?"":"s"} couldn't be found in this browser. They're marked “Missing” in the library; re-add them from there.`);pruneFiles();updateStorageNote();});
 requestAnimationFrame(frame);
 })();
 </script>
