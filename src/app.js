@@ -1897,6 +1897,8 @@ document.addEventListener("click",e=>{
     case"scr-pick":{const d=displays.find(x=>String(x.id)===b.dataset.id);if(d)addProjectorOn(d);break;}
     case"scr-plain":closeScreenPicker();{const o={id:uid(),name:"Projector "+(show.outputs.length+1),res:[1920,1080]};show.outputs.push(o);ensureOutputs();rt.mode="map";setOut(o.id);save();toast(`${o.name} added without a screen. Pick its screen in the panel on the right when it's connected.`);}break;
     case"scr-close":closeScreenPicker();break;
+    case"scr-fix":fixMirroring();break;
+    case"scr-settings":DESK.openDisplaySettings();break;
     case"scr-id":if(DESK)DESK.identify(+b.dataset.id);break;
     case"out":setOut(b.dataset.id);break;
     case"room":setRoom(!rt.room);break;
@@ -2338,7 +2340,7 @@ async function refreshDisplays(){if(!DESK)return displays;try{displays=await DES
 function displayFor(o){const s=o&&o.screen;if(!s)return null;return displays.find(d=>d.id===s.id)||displays.find(d=>d.label===s.label&&d.width===s.w&&d.height===s.h)||null;}
 function usedBy(d){return show.outputs.find(o=>displayFor(o)===d)||null;}
 function screenField(o){const cur=displayFor(o);
-  const opts=displays.filter(d=>!d.primary||d===cur).map(d=>{const u=usedBy(d);return`<option value="${d.id}" ${d===cur?"selected":""}>${esc(d.label)} · ${d.width}×${d.height}${u&&u!==o?` (used by ${esc(u.name)})`:""}</option>`}).join("");
+  const opts=displays.filter(d=>!d.control||d===cur).map(d=>{const u=usedBy(d);return`<option value="${d.id}" ${d===cur?"selected":""}>${esc(d.label)} · ${d.width}×${d.height}${u&&u!==o?` (used by ${esc(u.name)})`:""}</option>`}).join("");
   const missing=o.screen&&!cur?`<option value="" selected>${esc(o.screen.label)} (not connected)</option>`:"";
   return`<div class="field"><label for="scr-sel">Screen</label><div class="inline"><select id="scr-sel">${missing}<option value="" ${!o.screen?"selected":""}>None — open as a window</option>${opts}</select>${cur?`<button class="btn ghost" data-act="scr-id" data-id="${cur.id}" title="Flash this projector's name on its screen">Identify</button>`:""}</div></div>`;}
 async function setScreen(o,d){
@@ -2357,19 +2359,49 @@ async function addProjectorOn(d){closeScreenPicker();
   rt.testPattern=true;syncTP();renderTabs();renderPanel();save();
   await DESK.assign(o.id,d.id);openOutput(o.id,{quiet:true});
   toast(`${o.name} is set up at ${d.width}×${d.height} and filling that projector with a test grid. Drag the surface's corners until the grid sits on your set piece.`);}
-let scrUnsub=null;
+let scrPoll=0,scrState={canFix:false,mirrored:null},scrFixing=false,scrHadNone=false;
 async function openScreenPicker(){let m=$("#scrModal");
-  if(!m){m=document.createElement("div");m.className="modal-bg";m.id="scrModal";m.innerHTML=`<div class="modal scrmodal" role="dialog" aria-modal="true" aria-labelledby="scrTitle"><div class="wz-head"><h2 id="scrTitle">Add a projector</h2><button class="btn ghost" data-act="scr-close" aria-label="Close">✕</button></div><div id="scrBody"></div></div>`;document.body.appendChild(m);}
-  m.hidden=false;await renderScreenPicker();}
-function closeScreenPicker(){const m=$("#scrModal");if(m)m.hidden=true;}
-async function renderScreenPicker(){const m=$("#scrModal");if(!m||m.hidden)return;await refreshDisplays();
-  const free=displays.filter(d=>!d.primary&&!usedBy(d)),taken=displays.filter(d=>!d.primary&&usedBy(d)),me=displays.find(d=>d.primary);
-  const card=d=>`<div class="scr-card"><button class="scr-main" data-act="scr-pick" data-id="${d.id}"><b>${esc(d.label)}</b><span>${d.width} × ${d.height}${d.internal?" · built-in":""}</span></button><button class="btn ghost" data-act="scr-id" data-id="${d.id}" title="Flash its name on that screen">Identify</button></div>`;
-  $("#scrBody").innerHTML=(free.length?`<p class="note" style="margin-top:0">Pick the projector to add. Cuelight names it, matches its resolution and fills that screen with the test pattern, ready for you to map.</p><div class="scr-list">${free.map(card).join("")}</div>`
-    :`<div class="scr-empty"><b>No projector found yet.</b><p class="note">Connect it with HDMI or USB-C and turn it on. Then, in ${navigator.platform.startsWith("Mac")?"System Settings → Displays":"Settings → System → Display"}, set it to <b>Extend</b> (not Mirror). This list updates as soon as it appears.</p></div>`)
-    +(taken.length?`<p class="note">Already in use: ${taken.map(d=>`${esc(d.label)} (${esc(usedBy(d).name)})`).join(", ")}.</p>`:"")
-    +(me?`<p class="note">${esc(me.label)} is where Cuelight runs, so it isn't offered as a projector.</p>`:"")
-    +`<div class="btns" style="justify-content:space-between"><button class="btn ghost" data-act="scr-plain">Add without a screen</button><button class="btn" data-act="scr-close">Cancel</button></div>`;}
+  if(!m){m=document.createElement("div");m.className="modal-bg";m.id="scrModal";m.innerHTML=`<div class="modal scrmodal" role="dialog" aria-modal="true" aria-labelledby="scrTitle"><div class="wz-head"><h2 id="scrTitle">Connect a projector</h2><button class="btn ghost" data-act="scr-close" aria-label="Close">✕</button></div><div id="scrBody" aria-live="polite"></div></div>`;document.body.appendChild(m);}
+  m.hidden=false;scrHadNone=false;scrFixing=false;$("#scrBody").__h=null;await renderScreenPicker();
+  clearInterval(scrPoll);scrPoll=setInterval(()=>{if($("#scrModal").hidden){clearInterval(scrPoll);return;}renderScreenPicker();},2000);}
+function closeScreenPicker(){const m=$("#scrModal");if(m)m.hidden=true;clearInterval(scrPoll);}
+async function fixMirroring(){if(scrFixing)return;scrFixing=true;renderScreenPicker(true);
+  const r=await DESK.extend().catch(()=>({ok:false}));
+  setTimeout(()=>{scrFixing=false;renderScreenPicker();if(!r.ok)toast("Cuelight couldn't change the screen setup by itself. Use Open display settings and choose Extend.");},2500);}
+async function renderScreenPicker(quick){const m=$("#scrModal");if(!m||m.hidden)return;
+  if(!quick){await refreshDisplays();try{scrState=await DESK.screenState();}catch(e){scrState={canFix:false,mirrored:null};}}
+  const free=displays.filter(d=>!d.control&&!usedBy(d)),taken=displays.filter(d=>!d.control&&usedBy(d)),me=displays.find(d=>d.control);
+  const mac=navigator.platform.startsWith("Mac"),port=mac?"Mac":"computer";
+  const card=d=>`<div class="scr-card"><button class="scr-main" data-act="scr-pick" data-id="${d.id}"><b>${esc(d.label)}</b><span>${d.width} × ${d.height}${d.internal?" · built-in":""}</span><em>Use this one →</em></button><button class="btn ghost" data-act="scr-id" data-id="${d.id}" title="Flash its name on that screen">Identify</button></div>`;
+  const fixBtn=(label,primary)=>scrState.canFix?`<button class="btn ${primary?"primary":""}" data-act="scr-fix" ${scrFixing?"disabled":""}>${scrFixing?"Switching…":label}</button>`:`<button class="btn ${primary?"primary":""}" data-act="scr-settings">Open display settings</button>`;
+  let h="";
+  if(free.length){
+    h+=`<div class="scr-found"><span class="scr-dot ok"></span><b>${scrHadNone?"Found it!":free.length===1?"Projector found":"Projectors found"}</b></div>
+      <p class="note" style="margin-top:0">Pick the one to add. Cuelight names it, matches its resolution and fills it with a test grid, ready for you to fit onto your set.</p>
+      <div class="scr-list">${free.map(card).join("")}</div>`;
+  }else{
+    scrHadNone=true;
+    if(scrState.mirrored){
+      h+=`<div class="scr-callout"><b>Your projector is showing a copy of this screen.</b><p class="note">It needs to be its own screen so Cuelight can send it a different picture.</p>${fixBtn("Make it a separate screen",true)}</div>`;
+    }else{
+      h+=`<div class="scr-found"><span class="scr-dot"></span><b>Looking for your projector…</b></div>
+      <ol class="scr-steps">
+        <li><b>Plug it in.</b> Connect the projector to this ${port} with an HDMI cable${mac?" (use a USB-C to HDMI adapter if your Mac has no HDMI port)":""}.</li>
+        <li><b>Turn it on</b> and set the projector's input or source to that HDMI port.</li>
+        <li><b>That's it.</b> This window updates by itself the moment the projector appears.</li>
+      </ol>
+      <p class="note scr-mirror">Projector showing a copy of your screen instead? ${fixBtn("Make it a separate screen",false)}</p>
+      <details class="scr-help"><summary>Still not showing up?</summary><ul>
+        <li>Wake the projector: some go to standby and stop sending a signal.</li>
+        <li>Try another cable, adapter or port. Cheap adapters are the most common problem.</li>
+        <li>Turn the projector on <i>before</i> plugging it in, then unplug and plug it back in.</li>
+        ${me&&!me.internal&&displays.length===1?`<li>Cuelight is running on the only screen it can see. ${mac?"Open your MacBook's lid":"Connect your laptop's screen"} so the projector is a second screen.</li>`:""}
+      </ul></details>`;
+    }
+  }
+  if(taken.length)h+=`<p class="note">Already in use: ${taken.map(d=>`${esc(d.label)} (${esc(usedBy(d).name)})`).join(", ")}.</p>`;
+  h+=`<div class="btns" style="justify-content:space-between"><button class="btn ghost" data-act="scr-plain">Add without a screen</button><button class="btn" data-act="scr-close">Cancel</button></div>`;
+  const body=$("#scrBody");if(body.__h!==h){body.__h=h;const det=body.querySelector("details")?.open;body.innerHTML=h;if(det){const d=body.querySelector("details");if(d)d.open=true;}}}
 // Reopen outputs whose projector is connected; close ones whose screen went away so they never land on the control screen.
 async function syncScreens(auto){if(!DESK)return;await refreshDisplays();const opened=[],lost=[];
   for(const o of show.outputs){const d=displayFor(o),open=outWins[o.id]&&!outWins[o.id].closed;

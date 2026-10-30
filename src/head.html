@@ -402,6 +402,17 @@ kbd{font:500 11px var(--f-mono);border:1px solid var(--line);border-bottom-width
 .scr-main{flex:1;display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--raise);border:1px solid var(--line);border-radius:6px;padding:12px 14px;color:var(--ink);cursor:pointer;text-align:left;font:inherit}
 .scr-main:hover,.scr-main:focus-visible{border-color:var(--amber)}.scr-main span{color:var(--mute);font-family:var(--f-mono);font-size:12px}
 .scr-empty{border:1px dashed var(--line);border-radius:6px;padding:14px}
+.scr-main em{font-style:normal;color:var(--amber);font-size:12px;margin-left:auto}
+.scr-found{display:flex;align-items:center;gap:10px;font-size:15px}
+.scr-dot{width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 0 rgba(242,169,59,.6);animation:scrPulse 1.4s ease-out infinite}
+.scr-dot.ok{background:var(--run);animation:none}
+@keyframes scrPulse{0%{box-shadow:0 0 0 0 rgba(242,169,59,.55)}100%{box-shadow:0 0 0 12px rgba(242,169,59,0)}}
+@media (prefers-reduced-motion:reduce){.scr-dot{animation:none}}
+.scr-steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;color:var(--ink);font-size:14px;line-height:1.45}
+.scr-callout{border:1px solid var(--amber);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.scr-callout .note{margin:0}
+.scr-mirror{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.scr-help{font-size:13px;color:var(--mute)}.scr-help summary{cursor:pointer;color:var(--ink)}.scr-help ul{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
 </style>
 
 <header class="top">

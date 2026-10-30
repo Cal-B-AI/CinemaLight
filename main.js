@@ -71,10 +71,12 @@ const assigned = new Map();      // projector (output) id -> display id
 const pendingPlace = new Map();  // window frame name -> display id
 function displayInfo() {
   const primary = scr().getPrimaryDisplay().id;
+  // The screen Cuelight's own window is on is where you run the show, so it's never offered as a projector.
+  const control = win && !win.isDestroyed() ? scr().getDisplayMatching(win.getBounds()).id : primary;
   return scr().getAllDisplays().map((d, i) => ({
     id: d.id, label: d.label || (d.internal ? "Built-in display" : `Display ${i + 1}`),
     width: Math.round(d.bounds.width * d.scaleFactor), height: Math.round(d.bounds.height * d.scaleFactor),
-    scale: d.scaleFactor, x: d.bounds.x, y: d.bounds.y, primary: d.id === primary, internal: !!d.internal
+    scale: d.scaleFactor, x: d.bounds.x, y: d.bounds.y, primary: d.id === primary, control: d.id === control, internal: !!d.internal
   }));
 }
 ipcMain.handle("cl:displays", () => displayInfo());
@@ -91,6 +93,33 @@ ipcMain.handle("cl:identify", (_e, displayId) => {
   setTimeout(() => { try { w.destroy(); } catch (e) {} }, 2500);
   return true;
 });
+// Fixing screen arrangement without System Settings: macOS uses the bundled cuelight-displays helper,
+// Windows has DisplaySwitch built in.
+const { execFile } = require("child_process");
+function helperPath() {
+  const p = app.isPackaged ? path.join(process.resourcesPath, "cuelight-displays") : path.join(__dirname, "build", "helpers", "cuelight-displays");
+  return require("fs").existsSync(p) ? p : null;
+}
+function run(cmd, args) {
+  return new Promise(res => execFile(cmd, args, { timeout: 8000 }, (err, stdout) => res({ ok: !err, out: String(stdout || "") })));
+}
+ipcMain.handle("cl:screen-state", async () => {
+  if (process.platform === "darwin") {
+    const h = helperPath(); if (!h) return { canFix: false, mirrored: null };
+    const r = await run(h, ["list"]); let list = [];
+    try { list = JSON.parse(r.out); } catch (e) {}
+    return { canFix: true, mirrored: list.some(d => d.mirrorOf), online: list.length };
+  }
+  if (process.platform === "win32") return { canFix: true, mirrored: null };
+  return { canFix: false, mirrored: null };
+});
+ipcMain.handle("cl:extend", async () => {
+  if (process.platform === "darwin") { const h = helperPath(); if (!h) return { ok: false }; return run(h, ["extend"]); }
+  if (process.platform === "win32") return run(path.join(process.env.SystemRoot || "C:\\Windows", "System32", "DisplaySwitch.exe"), ["/extend"]);
+  return { ok: false };
+});
+ipcMain.handle("cl:open-display-settings", () => shell.openExternal(process.platform === "darwin" ? "x-apple.systempreferences:com.apple.Displays-Settings.extension" : "ms-settings:display"));
+
 function displaysChanged() { if (win && !win.isDestroyed()) win.webContents.send("cl:displays-changed"); }
 
 /* ---------- updates ---------- */

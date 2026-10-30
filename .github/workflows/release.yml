@@ -43,6 +43,9 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Build the macOS screen helper
+        if: runner.os == 'macOS'
+        run: npm run build:mac-helper
       - name: Build and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

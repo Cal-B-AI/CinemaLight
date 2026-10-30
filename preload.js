@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("cuelightDesktop", {
   displays: () => ipcRenderer.invoke("cl:displays"),
   assign: (outputId, displayId) => ipcRenderer.invoke("cl:assign", String(outputId), displayId == null ? null : Number(displayId)),
+  screenState: () => ipcRenderer.invoke("cl:screen-state"),
+  extend: () => ipcRenderer.invoke("cl:extend"),
+  openDisplaySettings: () => ipcRenderer.invoke("cl:open-display-settings"),
   identify: displayId => ipcRenderer.invoke("cl:identify", Number(displayId)),
   onDisplaysChanged: cb => { const h = () => cb(); ipcRenderer.on("cl:displays-changed", h); return () => ipcRenderer.removeListener("cl:displays-changed", h); }
 });
