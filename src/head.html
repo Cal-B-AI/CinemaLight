@@ -413,6 +413,49 @@ kbd{font:500 11px var(--f-mono);border:1px solid var(--line);border-bottom-width
 .scr-callout .note{margin:0}
 .scr-mirror{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .scr-help{font-size:13px;color:var(--mute)}.scr-help summary{cursor:pointer;color:var(--ink)}.scr-help ul{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.livebtn{white-space:nowrap}.livebtn[aria-pressed=true]{border-color:#e5484d;color:#ffb4b6}.livebtn .lv-dot,.pv-dot.edit{display:inline-block;width:8px;height:8px;border-radius:50%;background:#e5484d;margin-right:6px;vertical-align:1px}
+
+/* timeline mode: media library beside the stage and timeline */
+body.tl-mode .main{grid-template-columns:minmax(220px,270px) minmax(0,1fr) minmax(300px,370px)}
+.side-bin{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;min-width:0}
+body.tl-mode .side-bin .bin-wrap{margin:0}
+body.tl-mode .side-bin .bin{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+body.tl-mode .side-bin .bin-head{flex-wrap:wrap}
+@media (max-width:1180px){body.tl-mode .main{grid-template-columns:minmax(0,1fr) minmax(300px,370px)}body.tl-mode .side-bin{grid-column:1/-1;position:static;max-height:none;order:3}}
+@media (max-width:940px){body.tl-mode .main{grid-template-columns:minmax(0,1fr)}}
+/* timeline clips: picture band + sound band, fade handles, volume line */
+.tl-row.vis{height:58px}
+.tl-row.muted .tl-track{opacity:.45}
+.clip.locked{cursor:not-allowed}.clip.locked::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(45deg,rgba(255,255,255,.04) 0 6px,transparent 6px 12px);pointer-events:none}
+.clip.hasaud .cl-nm{align-self:flex-start;margin-top:4px}
+.cl-band{position:absolute;left:0;right:0;bottom:0;height:20px;background:rgba(10,20,22,.72);border-top:1px solid rgba(62,198,181,.35);z-index:1}
+.clip.aud .cl-band{top:0;height:auto;border-top:0;background:transparent}
+.clip.aud .cl-nm{z-index:2;align-self:flex-start;margin-top:3px}
+.cl-wave{display:block;width:100%;height:100%;pointer-events:none}
+.cl-fh{position:absolute;width:9px;height:9px;margin-left:-4px;margin-right:-4px;background:#fff;border:1px solid #111;border-radius:2px;z-index:3;cursor:ew-resize;opacity:0;transition:opacity .12s}
+.clip:hover .cl-fh,.clip.sel .cl-fh{opacity:1}
+.cl-fh.vi,.cl-fh.vo{top:2px}.cl-fh.ai,.cl-fh.ao{bottom:2px}.clip.aud .cl-fh.ai,.clip.aud .cl-fh.ao{top:2px;bottom:auto}
+.cl-fh.vo,.cl-fh.ao{left:auto}
+.ln-acts{margin-left:auto;display:flex;gap:2px;flex:none}
+.ln-btn{display:grid;place-items:center;width:22px;height:22px;border-radius:4px;border:1px solid transparent;background:transparent;color:var(--mute);cursor:pointer;padding:0}
+.ln-btn:hover{border-color:var(--line);color:var(--ink)}.ln-btn.on{color:var(--amber);border-color:rgba(242,169,59,.5)}
+.tl-tools{display:inline-flex;gap:4px;flex-wrap:wrap}
+.tl-mk{position:absolute;top:0;height:100%;transform:translateX(-1px);border:0;border-left:2px solid var(--amber);background:transparent;padding:0 0 0 3px;cursor:pointer;z-index:2;color:var(--amber);font:600 10px var(--f-body);display:flex;align-items:flex-end}
+.tl-mk span{background:rgba(14,17,22,.85);padding:0 3px;border-radius:2px;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.tl-mkline{position:absolute;top:26px;bottom:0;width:0;border-left:1px dashed rgba(242,169,59,.45);z-index:3;pointer-events:none}
+.mk-list{display:flex;flex-direction:column;gap:6px}.mk-row{display:grid;grid-template-columns:auto 1fr 76px auto;gap:6px;align-items:center}
+.tour{border-left:3px solid var(--amber)}
+.tour-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.tour-list li{display:flex;gap:10px;align-items:flex-start;color:var(--mute)}.tour-list li b{font-weight:500}
+.tour-list li.next{color:var(--ink)}.tour-list li.next b{font-weight:600}.tour-list li.done b{text-decoration:line-through;text-decoration-color:rgba(139,147,162,.6)}
+.tour-list .note{margin:4px 0 8px}
+.tk-b{flex:none;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:11px;color:#0e1116;margin-top:1px}
+.tour-list li.done .tk-b{background:var(--run);border-color:var(--run)}.tour-list li.next .tk-b{border-color:var(--amber)}
+.helpbtn{width:32px;padding-inline:0;font-weight:700}
+.helpmodal{width:min(860px,100%)}.help-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}
+.help-grid h3{margin:0 0 8px;font:600 12px var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.help-grid dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:13px}.help-grid dd{margin:0;color:var(--ink)}.help-grid dt{white-space:nowrap}
+#lockBtn[aria-pressed=true]{border-color:var(--amber);color:var(--amber)}
 </style>
 
 <header class="top">
@@ -426,6 +469,8 @@ kbd{font:500 11px var(--f-mono);border:1px solid var(--line);border-bottom-width
     <button id="modeCues" data-act="mode" data-v="cues">Cues</button>
     <button id="modeTL" data-act="mode" data-v="timeline">Timeline</button>
   </div>
+  <button class="btn livebtn" id="liveBtn" data-act="live-edit" aria-pressed="true"></button>
+  <button class="btn ghost helpbtn" data-act="help" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
   <div class="hist" role="group" aria-label="History">
     <button class="btn ghost" id="undoBtn" data-act="undo" title="Undo (⌘Z / Ctrl+Z)" aria-keyshortcuts="Meta+Z Control+Z" disabled>↶ Undo</button>
     <button class="btn ghost" id="redoBtn" data-act="redo" title="Redo (⇧⌘Z / Ctrl+Y)" aria-keyshortcuts="Meta+Shift+Z Control+Y" disabled>↷ Redo</button>
@@ -440,11 +485,13 @@ kbd{font:500 11px var(--f-mono);border:1px solid var(--line);border-bottom-width
 </header>
 
 <main class="main">
+  <aside class="side-bin" id="sideBin" aria-label="Media library" hidden></aside>
   <div class="col">
     <div class="otabs" id="outTabs" role="group" aria-label="Projectors"></div>
     <div class="stage-tools">
       <div class="add-group-btns" id="addTools"></div>
       <div class="out-btns">
+        <button class="btn" id="lockBtn" data-act="map-lock" aria-pressed="false" title="Stop surfaces and masks being dragged by accident during a show">Lock mapping</button>
         <button class="btn" data-act="room-layout" data-v="overlap" hidden title="Put every projector over the same area">Overlap all</button>
         <button class="btn" data-act="room-layout" data-v="row" hidden title="Place projectors next to each other">Side by side</button>
         <button class="btn" id="roomArrBtn" data-act="room-arrange" aria-pressed="false" hidden>Arrange projectors</button>

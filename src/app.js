@@ -469,11 +469,20 @@ function drawOutput(o,t,state=rt.surf,dest=oc[o.id]?.ctx,tp=rt.testPattern,vp=nu
   gl.disable(gl.SCISSOR_TEST);XF=[1,1,0,0];
   if(dest)dest.drawImage(glc,0,glc.height-h,w,h,0,0,w,h);
 }
+// Live edits: while you build or edit a cue (or work in the timeline), the projectors show it too.
+// Blind: they keep the running show until GO.
+rt.liveEdit=(()=>{try{return localStorage.getItem("cuelight-live-edit")!=="0";}catch(e){return true;}})();
+function projFollowsEdit(){return rt.liveEdit&&(previewActive()||rt.mode==="timeline");}
+function projState(){
+  if(rt.liveEdit&&previewActive())return{state:rt.preview.surf,tp:false};
+  if(rt.liveEdit&&rt.mode==="timeline")return{state:tl.surf,tp:false};
+  const toTL=rt.outSrc==="timeline";return{state:toTL?tl.surf:rt.surf,tp:toTL?false:rt.testPattern};
+}
 function draw(n){
   if(!gl)return;
   if(tlActive())tlStep(n);
-  const toTL=rt.outSrc==="timeline";
-  for(const o of show.outputs)drawOutput(o,n/1000,toTL?tl.surf:rt.surf,oc[o.id]?.ctx,toTL?false:rt.testPattern);
+  const ps=projState();
+  for(const o of show.outputs)drawOutput(o,n/1000,ps.state,oc[o.id]?.ctx,ps.tp);
   if(stageUsesPvc()){const o=curOut();if(pvc.width!==o.res[0]||pvc.height!==o.res[1]){pvc.width=o.res[0];pvc.height=o.res[1];}drawOutput(o,n/1000,previewActive()?rt.preview.surf:tl.surf,pvx,false);}
 }
 function drawThumbs(){
@@ -590,9 +599,10 @@ function tlSeek(t){tl.t=clamp(t,0,T().duration);if(tl.playing){tl.t0=tl.t;tl.wal
 function tlPlay(from){if(from!=null)tl.t=clamp(+from||0,0,T().duration);if(tl.t>=T().duration-0.01)tl.t=0;tl.playing=true;tl.t0=tl.t;tl.wall0=now();ac();renderTLTransport();}
 function tlPause(){tl.playing=false;renderTLTransport();}
 function tlToggle(){if(tl.playing){tlPause();return;}
-  // Play sends the timeline to the projectors, unless you've chosen to keep them on the cue show and preview here.
-  if(rt.outSrc!=="timeline"&&!tl.previewOnly){rt.outSrc="timeline";showStage();renderPanel();toast("Playing on the projectors. Click “Projectors: showing timeline” to keep them on the cue show and only preview here.");}
-  tlPlay();}
+  // Live edits: Play goes to the projectors (and keeps going if you leave the timeline). Blind: Play previews here until you send it out.
+  if(rt.liveEdit){if(rt.outSrc!=="timeline"){rt.outSrc="timeline";showStage();renderPanel();toast("Playing on the projectors. Switch to Blind edits (top bar) to rehearse here without changing them.");}}
+  else if(rt.outSrc!=="timeline")toast("Blind: playing on this screen only. Click “Projectors: showing cues” to send the timeline out.");
+  show.tour=show.tour||{};show.tour.go=true;tlPlay();}
 function clipOp(c,t){
   const local=t-c.start,end=c.start+c.dur;let op=c.level??1,trans=0,prog=1;
   const tin=Math.min(+c.tin||0,c.dur),ty=TRANS[c.ttype]?c.ttype:"xfade";
@@ -600,34 +610,67 @@ function clipOp(c,t){
   const fo=Math.min(+c.fout||0,c.dur);if(fo>0&&end-t<fo)op*=clamp((end-t)/fo,0,1);
   return{op,trans,prog};
 }
+// Sound level for a clip at time t: its volume shaped by fade-in and fade-out ramps.
+function clipGain(c,t,vol,fi,fo){const local=t-c.start,end=c.start+c.dur;let g=clamp(vol??1,0,1);
+  fi=Math.min(+fi||0,c.dur);fo=Math.min(+fo||0,c.dur);
+  if(fi>0&&local<fi)g*=clamp(local/fi,0,1);if(fo>0&&end-t<fo)g*=clamp((end-t)/fo,0,1);return g;}
+const laneSt=id=>(T().lanes||{})[id]||{};
+// A video clip plays its own sound unless it's muted, its lane is muted, the file has no sound, or the sound was separated.
+function videoClipSounds(c){const m=media(c.mediaId);return m&&m.kind==="video"&&!c.mute&&!laneSt(c.lane).mute&&mediaRT[m.id]?.noAudio!==true;}
 function tlStep(n){
   const TT=T();
   if(tl.playing){tl.t=tl.t0+(n-tl.wall0)/1000;if(tl.t>=TT.duration){if(TT.loop){tl.t=0;tl.t0=0;tl.wall0=n;}else{tl.t=TT.duration;tl.playing=false;renderTLTransport();}}}
   const t=tl.t,st={},keep=new Set();
   for(const s of show.surfaces)st[s.id]={level:1,players:[]};
-  const clips=TT.clips.filter(c=>!isAudioLane(c.lane)).sort((a,b)=>a.start-b.start);
+  const clips=TT.clips.filter(c=>!isAudioLane(c.lane)&&!laneSt(c.lane).mute).sort((a,b)=>a.start-b.start);
   for(const c of clips){
     const active=t>=c.start&&t<c.start+c.dur,warm=!active&&c.start>t&&c.start-t<2.5;
     if(!active&&!warm)continue;const m=media(c.mediaId);if(!m||!st[c.lane])continue;
     let p=tl.players[c.id];if(!p||p.mediaId!==c.mediaId||p.sid!==c.lane)p=tl.players[c.id]={mediaId:c.mediaId,sid:c.lane,op:1,tl:true};
     p.frame=c.frame||null;keep.add(c.id);
     if(m.kind==="video"){const v=ensureVid(p);if(v){const want=(+c.in||0)+(active?t-c.start:0);
+      const snd=active&&tl.playing&&videoClipSounds(c);v.muted=!snd;if(snd)v.volume=clipGain(c,t,c.vol,c.afi,c.afo);
       if(active&&tl.playing){if(v.paused&&v.readyState>=1)v.play().catch(()=>{});if(Math.abs(v.currentTime-want)>0.3){try{v.currentTime=want;}catch(e){}}}
       else{if(!v.paused)v.pause();if(Math.abs(v.currentTime-want)>0.04&&!v.seeking){try{v.currentTime=want;}catch(e){}}}}}
     if(active){const o=clipOp(c,t);p.op=o.op;p.trans=o.trans;p.prog=o.prog;st[c.lane].players.push(p);}
   }
   for(const id in tl.players)if(!keep.has(id))delete tl.players[id];
   tl.surf=st;
+  // Sound lanes: sound files, or the sound of a video file (from Separate audio, or dropped on a sound lane).
   const akeep=new Set();
   for(const c of TT.clips){
-    if(!isAudioLane(c.lane))continue;const m=media(c.mediaId),r=m&&mediaRT[m.id];if(!r||!r.url||m.kind!=="audio")continue;
+    if(!isAudioLane(c.lane)||laneSt(c.lane).mute)continue;const m=media(c.mediaId),r=m&&mediaRT[m.id];if(!r||!r.url||(m.kind!=="audio"&&m.kind!=="video"))continue;
     const active=t>=c.start&&t<c.start+c.dur;if(!active&&!(c.start>t&&c.start-t<2))continue;akeep.add(c.id);
     let a=tl.aud[c.id];if(!a||a._mid!==m.id){if(a)a.pause();a=tl.aud[c.id]=new Audio(r.url);a._mid=m.id;a.preload="auto";}
     const want=(+c.in||0)+(active?t-c.start:0);
-    if(active&&tl.playing){a.volume=clamp(clipOp(c,t).op,0,1);if(a.paused)a.play().catch(()=>{});if(Math.abs(a.currentTime-want)>0.3){try{a.currentTime=want;}catch(e){}}}
+    if(active&&tl.playing){a.volume=clipGain(c,t,c.level??1,c.tin,c.fout);if(a.paused)a.play().catch(()=>{});if(Math.abs(a.currentTime-want)>0.3){try{a.currentTime=want;}catch(e){}}}
     else{if(!a.paused)a.pause();if(Math.abs(a.currentTime-want)>0.05){try{a.currentTime=want;}catch(e){}}}
   }
   for(const id in tl.aud)if(!akeep.has(id)){try{tl.aud[id].pause();tl.aud[id].removeAttribute("src");}catch(e){}delete tl.aud[id];}
+}
+/* waveforms: decoded once per file, drawn inside clips */
+const peakQ=[];let peakBusy=false;
+function hasSoundTrack(m){return m&&(m.kind==="audio"||(m.kind==="video"&&mediaRT[m.id]?.noAudio!==true));}
+function ensurePeaks(m){const r=m&&mediaRT[m.id];if(!r||!r.url||r.peaks||r.peaking||r.noPeaks)return;r.peaking=true;peakQ.push(m);runPeaks();}
+async function runPeaks(){if(peakBusy)return;const m=peakQ.shift();if(!m)return;peakBusy=true;const r=mediaRT[m.id];
+  try{const ctx=ac();if(!ctx)throw 0;let buf;
+    if(r.blob){if(r.blob.size>500*1048576)throw 0;buf=await r.blob.arrayBuffer();}else buf=await (await fetch(r.url)).arrayBuffer();
+    const ab=await new Promise((res,rej)=>{const pr=ctx.decodeAudioData(buf,res,rej);if(pr&&pr.then)pr.then(res,rej);});
+    const rate=100,n=Math.ceil(ab.duration*rate),step=ab.sampleRate/rate,out=new Uint8Array(n),chs=[];for(let k=0;k<ab.numberOfChannels;k++)chs.push(ab.getChannelData(k));
+    for(let i=0;i<n;i++){let mx=0;const a=Math.floor(i*step),b=Math.min(ab.length,Math.floor((i+1)*step));for(const ch of chs)for(let q=a;q<b;q+=4){const v=Math.abs(ch[q]);if(v>mx)mx=v;}out[i]=Math.min(255,Math.round(Math.sqrt(mx)*255));}
+    r.peaks={rate,data:out};if(m.kind==="video")r.noAudio=false;
+  }catch(e){if(m.kind==="video")r.noAudio=true;r.noPeaks=true;}
+  r.peaking=false;peakBusy=false;if(rt.mode==="timeline")renderTimeline();runPeaks();}
+function drawWave(cv){
+  const c=tlClip(cv.dataset.wc);if(!c)return;const m=media(c.mediaId),r=m&&mediaRT[m.id];const d=window.devicePixelRatio||1,W=Math.max(1,Math.round(cv.clientWidth*d)),H=Math.max(1,Math.round(cv.clientHeight*d));
+  cv.width=W;cv.height=H;const x=cv.getContext("2d");x.clearRect(0,0,W,H);
+  const aud=isAudioLane(c.lane),vol=aud?c.level??1:c.vol??1,fi=aud?c.tin:c.afi,fo=aud?c.fout:c.afo,muted=aud?laneSt(c.lane).mute:!videoClipSounds(c);
+  const g=k=>clipGain(c,c.start+k*c.dur,vol,fi,fo);
+  if(r?.peaks){const P=r.peaks;x.fillStyle=muted?"rgba(139,147,162,.35)":"rgba(62,198,181,.85)";
+    for(let px=0;px<W;px++){const k=px/W,ts=(+c.in||0)+k*c.dur,i=Math.floor(ts*P.rate);const v=(P.data[i]||0)/255*g(k);const h=Math.max(1,v*H*0.92);x.fillRect(px,(H-h)/2,1,h);}}
+  // volume envelope: the line you see is the level; ramps are the fades
+  x.strokeStyle=muted?"rgba(230,232,237,.35)":"rgba(255,255,255,.9)";x.lineWidth=1.5*d;x.beginPath();
+  const steps=Math.min(400,W);for(let i=0;i<=steps;i++){const k=i/steps,y=(1-g(k))*(H-3*d)+1.5*d;i?x.lineTo(k*W,y):x.moveTo(0,y);}x.stroke();
 }
 function stageUsesPvc(){return previewActive()||(rt.mode==="timeline"&&rt.outSrc!=="timeline");}
 /* snapping */
@@ -638,13 +681,17 @@ function snapMove(st,dur,exId){if(!tl.snap)return st;let best=st,bd=8/tl.pps;for
 function tlAddClip(m,lane,start){
   if(!m)return;
   if(m.kind==="synth"){toast("Built-in synth sounds can't go on the timeline yet. Upload a sound file, or use an Audio cue.");return;}
-  if(isAudioLane(lane)!==(m.kind==="audio")){toast(m.kind==="audio"?"Sound files go on the audio lanes at the bottom.":"Videos, images and effects go on a surface lane.");return;}
+  const onSound=isAudioLane(lane);
+  if(onSound&&m.kind!=="audio"&&m.kind!=="video"){toast("Only sound files, or the sound of a video, go on the sound lanes. Images and effects go on a surface lane.");return;}
+  if(!onSound&&m.kind==="audio"){toast("Sound files go on the sound lanes at the bottom.");return;}
+  if(laneSt(lane).lock){toast(`${laneName(lane)} is locked. Unlock it in its lane header to add clips.`);return;}
   const sd=srcDur(m);
   const c={id:uid(),lane,mediaId:m.id,start:snapT(Math.max(0,start)),dur:sd?Math.min(sd,30):5,in:0,tin:0,ttype:"xfade",fout:0,level:1};
+  if(m.kind==="video"&&!onSound){c.vol=1;c.afi=0;c.afo=0;ensurePeaks(m);}if(onSound)ensurePeaks(m);
   if(!sd&&(m.kind==="video"||m.kind==="audio"))c.auto=true;
   T().clips.push(c);if(c.start+c.dur>T().duration)T().duration=Math.ceil(c.start+c.dur+5);
   rt.tsel=c.id;save();renderTimeline();renderPanel();
-  toast(`“${m.name}” added to ${laneName(lane)} at ${fmtTC(c.start)}. Drag its edges to trim, overlap clips to transition.`);
+  toast(m.kind==="video"&&!onSound?`“${m.name}” added with its sound. Drag the small squares on the clip to fade the picture (top) or the sound (bottom).`:`“${m.name}” added to ${laneName(lane)} at ${fmtTC(c.start)}. Drag its edges to trim, overlap clips to transition.`);
 }
 function tlFixAutoDur(m){const sd=srcDur(m);if(!sd||!show?.timeline)return;let ch=false;for(const c of T().clips)if(c.auto&&c.mediaId===m.id){c.dur=Math.min(sd,30);delete c.auto;ch=true;}if(ch){save();renderTimeline();}}
 function tlSplit(){
@@ -652,25 +699,68 @@ function tlSplit(){
   if(!c||t<=c.start+0.02||t>=c.start+c.dur-0.02){toast("Select a clip and put the playhead inside it to split it.");return;}
   const m=media(c.mediaId),src=m&&(m.kind==="video"||m.kind==="audio");
   const c2={...c,id:uid(),start:t,dur:c.start+c.dur-t,in:src?(+c.in||0)+(t-c.start):0,tin:0,frame:c.frame?{...c.frame}:undefined};
-  if(!c2.frame)delete c2.frame;c.dur=t-c.start;c.fout=0;T().clips.push(c2);rt.tsel=c2.id;save();renderTimeline();renderPanel();toast("Clip split at the playhead.");
+  if(!c2.frame)delete c2.frame;c2.afi=0;c.dur=t-c.start;c.fout=0;c.afo=0;T().clips.push(c2);rt.tsel=c2.id;save();renderTimeline();renderPanel();toast("Clip split at the playhead.");
 }
-function tlDup(){const c=tlClip(rt.tsel);if(!c)return;const c2={...JSON.parse(JSON.stringify(c)),id:uid(),start:c.start+c.dur};T().clips.push(c2);
-  if(c2.start+c2.dur>T().duration)T().duration=Math.ceil(c2.start+c2.dur+5);rt.tsel=c2.id;save();renderTimeline();renderPanel();}
-function tlDel(){const c=tlClip(rt.tsel);if(!c)return;show.timeline.clips=T().clips.filter(x=>x!==c);rt.tsel=null;save();renderTimeline();renderPanel();toast("Clip deleted.",{label:"Undo",fn:undo});}
+rt.tmulti=new Set();
+function tlSelIds(){const ids=new Set(rt.tmulti);if(rt.tsel)ids.add(rt.tsel);return[...ids].filter(id=>tlClip(id));}
+function tlSelect(id,add){if(!add){rt.tmulti.clear();rt.tsel=id;return;}if(rt.tmulti.has(id)||rt.tsel===id){rt.tmulti.delete(id);if(rt.tsel===id){rt.tsel=[...rt.tmulti][0]||null;}}else{if(rt.tsel)rt.tmulti.add(rt.tsel);rt.tmulti.add(id);rt.tsel=id;}}
+function tlClearSel(){rt.tsel=null;rt.tmulti.clear();}
+function growTo(c){if(c.start+c.dur>T().duration)T().duration=Math.ceil(c.start+c.dur+5);}
+function tlDup(){const ids=tlSelIds();if(!ids.length)return;const cs=ids.map(tlClip),lo=Math.min(...cs.map(c=>c.start)),hi=Math.max(...cs.map(c=>c.start+c.dur));
+  const made=cs.map(c=>{const c2={...JSON.parse(JSON.stringify(c)),id:uid(),start:c.start+(hi-lo)};delete c2.link;T().clips.push(c2);growTo(c2);return c2;});
+  rt.tmulti=new Set(made.map(c=>c.id));rt.tsel=made[made.length-1].id;save();renderTimeline();renderPanel();}
+function unlinkRefs(gone){for(const c of T().clips)if(c.link&&gone.has(c.link)){delete c.link;if(!isAudioLane(c.lane))c.mute=false;}}
+function tlDel(ripple){const ids=tlSelIds().filter(id=>!laneSt(tlClip(id).lane).lock);if(!ids.length)return;const gone=new Set(ids),cs=ids.map(tlClip);
+  show.timeline.clips=T().clips.filter(x=>!gone.has(x.id));unlinkRefs(gone);
+  if(ripple)for(const c of cs){for(const o of T().clips)if(o.lane===c.lane&&o.start>=c.start+c.dur-1e-6)o.start=Math.max(0,o.start-c.dur);}
+  tlClearSel();save();renderTimeline();renderPanel();toast(`${ids.length===1?"Clip":ids.length+" clips"} deleted${ripple?" and the gap closed":""}.`,{label:"Undo",fn:undo});}
+let tlClipboard=null;
+function tlCopy(cut){const ids=tlSelIds();if(!ids.length)return;const cs=ids.map(tlClip),lo=Math.min(...cs.map(c=>c.start));tlClipboard=cs.map(c=>({...JSON.parse(JSON.stringify(c)),off:c.start-lo}));
+  if(cut)tlDel();else toast(`${cs.length===1?"Clip":cs.length+" clips"} copied. Move the playhead and press ⌘V to paste.`);}
+function tlPaste(){if(!tlClipboard)return;const made=tlClipboard.map(c=>{const c2={...JSON.parse(JSON.stringify(c)),id:uid(),start:tl.t+c.off};delete c2.off;delete c2.link;if(!laneList().some(l=>l.id===c2.lane))return null;T().clips.push(c2);growTo(c2);return c2;}).filter(Boolean);
+  if(!made.length)return;rt.tmulti=new Set(made.map(c=>c.id));rt.tsel=made[0].id;save();renderTimeline();renderPanel();toast(`Pasted at ${fmtTC(tl.t)}.`);}
+function tlTrimTo(side){const c=tlClip(rt.tsel),t=tl.t;if(!c||t<=c.start+0.02||t>=c.start+c.dur-0.02){toast("Select a clip and put the playhead inside it to trim to the playhead.");return;}
+  const m=media(c.mediaId),src=m&&(m.kind==="video"||m.kind==="audio");
+  if(side==="start"){const k=t-c.start;c.start=t;c.dur-=k;if(src)c.in=(+c.in||0)+k;}else c.dur=t-c.start;save();renderTimeline();renderPanel();}
+function tlSeparate(){const c=tlClip(rt.tsel);if(!c)return;const m=media(c.mediaId);if(!m||m.kind!=="video"||isAudioLane(c.lane))return;
+  const busy=l=>T().clips.some(o=>o.lane===l&&o.start<c.start+c.dur&&o.start+o.dur>c.start),lane=AUDIO_LANES.map(a=>a[0]).find(l=>!busy(l))||"a1";
+  const a={id:uid(),lane,mediaId:m.id,start:c.start,dur:c.dur,in:+c.in||0,tin:+c.afi||0,ttype:"xfade",fout:+c.afo||0,level:c.vol??1,link:c.id};
+  T().clips.push(a);c.mute=true;c.link=a.id;rt.tmulti.clear();rt.tsel=a.id;save();renderTimeline();renderPanel();
+  toast(`Sound separated onto ${laneName(lane)}. Move, trim or fade it on its own; the video stays silent.`);}
+function tlRejoin(){const c=tlClip(rt.tsel);if(!c||!c.link)return;const o=tlClip(c.link);const v=isAudioLane(c.lane)?o:c,a=isAudioLane(c.lane)?c:o;
+  if(v){v.mute=false;delete v.link;if(a){v.vol=a.level??1;v.afi=+a.tin||0;v.afo=+a.fout||0;}}if(a)show.timeline.clips=T().clips.filter(x=>x!==a);
+  rt.tmulti.clear();rt.tsel=v?.id||null;save();renderTimeline();renderPanel();toast("Sound joined back to the video.");}
+function tlMarker(){const TT=T();TT.markers=TT.markers||[];const mk={id:uid(),t:+tl.t.toFixed(3),name:"Marker "+(TT.markers.length+1)};TT.markers.push(mk);TT.markers.sort((a,b)=>a.t-b.t);save();renderTimeline();renderPanel();toast(`${mk.name} added at ${fmtTC(mk.t)}. Rename it in the panel.`);}
+function editPoints(){const p=new Set([0,T().duration]);for(const c of T().clips){p.add(+c.start.toFixed(3));p.add(+(c.start+c.dur).toFixed(3));}for(const mk of T().markers||[])p.add(mk.t);return[...p].sort((a,b)=>a-b);}
+function tlJump(dir){const pts=editPoints(),t=tl.t;const n=dir>0?pts.find(x=>x>t+0.005):[...pts].reverse().find(x=>x<t-0.005);if(n!=null)tlSeek(n);}
 function tlPickSurface(sf){
   const on=T().clips.filter(c=>c.lane===sf.id&&tl.t>=c.start&&tl.t<c.start+c.dur).sort((a,b)=>b.start-a.start)[0];
   if(!on){toast(`Nothing plays on ${sf.name} at ${fmtTC(tl.t)}. Drag media onto its lane.`);return;}
   rt.tsel=on.id;renderTimeline();renderPanel();
 }
 /* timeline dock UI */
+const ICON_EYE='<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M1 8s2.6-4.5 7-4.5S15 8 15 8s-2.6 4.5-7 4.5S1 8 1 8z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>';
+const ICON_SPK='<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 6h3l4-3v10L5 10H2z" fill="currentColor"/><path d="M11 5.5a3.5 3.5 0 010 5M12.5 3.5a6 6 0 010 9" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+const ICON_LOCK='<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/><path d="M5 7V5a3 3 0 016 0v2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 function clipHTML(c){
-  const m=media(c.mediaId),pps=tl.pps,sel=rt.tsel===c.id;
-  return`<div class="clip${sel?" sel":""}${isAudioLane(c.lane)?" aud":""}${!m||missing(m)||mediaRT[m?.id]?.err?" bad":""}" data-clip="${c.id}" style="left:${c.start*pps}px;width:${Math.max(6,c.dur*pps)}px" title="${esc(m?.name||"Missing media")} · ${fmtTC(c.start)} → ${fmtTC(c.start+c.dur)}">
-    <span class="cl-th" style="${m?swatchCSS(m):"background:#333"}"></span>
-    ${+c.tin>0&&c.ttype!=="cut"?`<span class="cl-in" style="width:${Math.min(+c.tin,c.dur)*pps}px"></span>`:""}
-    ${+c.fout>0?`<span class="cl-out" style="width:${Math.min(+c.fout,c.dur)*pps}px"></span>`:""}
-    <span class="cl-nm">${esc(m?.name||"Missing media")}</span><i class="cl-h l" data-h="l"></i><i class="cl-h r" data-h="r"></i></div>`;
+  const m=media(c.mediaId),pps=tl.pps,sel=rt.tsel===c.id||rt.tmulti.has(c.id),aud=isAudioLane(c.lane),lk=laneSt(c.lane).lock;
+  const vid=m&&m.kind==="video"&&!aud,band=aud||(vid&&!c.link&&mediaRT[m.id]?.noAudio!==true);
+  if(m&&(aud||vid))ensurePeaks(m);
+  const w=Math.max(6,c.dur*pps),fx=v=>Math.min(Math.max(0,+v||0),c.dur)*pps;
+  const vi=aud?0:fx(c.ttype==="cut"?0:c.tin),vo=aud?0:fx(c.fout),ai=fx(aud?c.tin:c.afi),ao=fx(aud?c.fout:c.afo);
+  const label=`${esc(m?.name||"Missing media")}${vid&&c.mute&&!c.link?" · muted":""}${vid&&c.link?" · sound separated":""}${aud&&m?.kind==="video"?" · sound":""}`;
+  return`<div class="clip${sel?" sel":""}${aud?" aud":""}${band&&!aud?" hasaud":""}${lk?" locked":""}${!m||missing(m)||mediaRT[m?.id]?.err?" bad":""}" data-clip="${c.id}" style="left:${c.start*pps}px;width:${w}px" title="${esc(m?.name||"Missing media")} · ${fmtTC(c.start)} → ${fmtTC(c.start+c.dur)}">
+    ${aud?"":`<span class="cl-th" style="${m?swatchCSS(m):"background:#333"}"></span>`}
+    ${vi>0?`<span class="cl-in" style="width:${vi}px"></span>`:""}${vo>0?`<span class="cl-out" style="width:${vo}px"></span>`:""}
+    <span class="cl-nm">${label}</span>
+    ${band?`<span class="cl-band"><canvas class="cl-wave" data-wc="${c.id}"></canvas></span>`:""}
+    ${!lk&&!aud&&w>28?`<i class="cl-fh vi" data-fh="vi" style="left:${vi}px" title="Drag to fade the picture in"></i><i class="cl-fh vo" data-fh="vo" style="right:${vo}px" title="Drag to fade the picture out"></i>`:""}
+    ${!lk&&band&&w>28?`<i class="cl-fh ai" data-fh="ai" style="left:${ai}px" title="Drag to fade the sound in"></i><i class="cl-fh ao" data-fh="ao" style="right:${ao}px" title="Drag to fade the sound out"></i>`:""}
+    ${lk?"":`<i class="cl-h l" data-h="l"></i><i class="cl-h r" data-h="r"></i>`}</div>`;
 }
+function laneHead(l){const ls=laneSt(l.id);
+  return`<div class="tl-head" title="${esc(l.name)}"><span class="chip" style="background:${l.color}"></span><span class="nm">${esc(l.name)}</span>
+    <span class="ln-acts"><button class="ln-btn${ls.mute?" on":""}" data-act="ln-mute" data-id="${l.id}" aria-pressed="${!!ls.mute}" title="${l.audio?(ls.mute?"Unmute this lane":"Mute this lane"):(ls.mute?"Show this lane":"Hide this lane")}" aria-label="${l.audio?"Mute":"Hide"} ${esc(l.name)}">${l.audio?ICON_SPK:ICON_EYE}</button><button class="ln-btn${ls.lock?" on":""}" data-act="ln-lock" data-id="${l.id}" aria-pressed="${!!ls.lock}" title="${ls.lock?"Unlock this lane":"Lock this lane so clips can't be moved"}" aria-label="Lock ${esc(l.name)}">${ICON_LOCK}</button></span></div>`;}
 function renderTimeline(){
   const dock=$("#tlDock");if(!dock)return;if(rt.mode!=="timeline"){dock.hidden=true;return;}dock.hidden=false;
   const sc=$("#tlScroll"),sl=sc?.scrollLeft||0,st=sc?.scrollTop||0;
@@ -678,30 +768,42 @@ function renderTimeline(){
   const lab=[0.5,1,2,5,10,15,30,60,120].find(v=>v*pps>=72)||300,minor=lab*pps/5>=8?lab/5:lab;
   let ticks="";for(let x=0;x<=TT.duration+1e-6;x=+(x+minor).toFixed(4)){const maj=Math.abs(x/lab-Math.round(x/lab))<1e-6;
     ticks+=`<i class="tk${maj?" maj":""}" style="left:${x*pps}px">${maj?`<b>${fmtTC(x).replace(/\.00$/,"")}</b>`:""}</i>`;}
+  const marks=(TT.markers||[]).map(mk=>`<button class="tl-mk" data-act="mk-go" data-id="${mk.id}" style="left:${mk.t*pps}px" title="${esc(mk.name)} · ${fmtTC(mk.t)}"><span>${esc(mk.name)}</span></button>`).join("");
   const clipsBy={};for(const c of TT.clips)(clipsBy[c.lane]=clipsBy[c.lane]||[]).push(c);
+  const nSel=tlSelIds().length;
   dock.innerHTML=`<div class="tl-bar">
       <button class="btn" data-act="tl-home" title="Go to start (Home)" aria-label="Go to start">⏮</button>
+      <button class="btn" data-act="tl-prev" title="Previous edit point (↑)" aria-label="Previous edit point">⇤</button>
       <button class="btn primary tl-play" id="tlPlay" data-act="tl-play" aria-keyshortcuts="Space"></button>
+      <button class="btn" data-act="tl-next" title="Next edit point (↓)" aria-label="Next edit point">⇥</button>
       <span class="tl-tc mono" id="tlTC">${fmtTC(tl.t)}</span><span class="tl-len mono">/ ${fmtTC(TT.duration)}</span>
       <span class="tl-sp"></span>
-      <button class="btn" data-act="tl-split" title="Split the selected clip at the playhead (S)">✂ Split</button>
+      <span class="tl-tools" role="group" aria-label="Edit">
+        <button class="btn" data-act="tl-split" title="Split the selected clip at the playhead (S)">✂ Split</button>
+        <button class="btn" data-act="tl-trim-s" title="Trim the clip's start to the playhead ([)" aria-label="Trim start to playhead">⇥|</button>
+        <button class="btn" data-act="tl-trim-e" title="Trim the clip's end to the playhead (])" aria-label="Trim end to playhead">|⇤</button>
+        <button class="btn" data-act="tl-ripple" title="Delete and close the gap (⇧Delete)" ${nSel?"":"disabled"}>Ripple delete</button>
+        <button class="btn" data-act="tl-marker" title="Add a marker at the playhead (⇧M)">+ Marker</button>
+      </span>
       <label class="inline tl-ck"><input id="tlSnap" type="checkbox" ${tl.snap?"checked":""}> Snap</label>
       <label class="inline tl-ck"><input id="tlOutl" type="checkbox" ${tl.outlines!==false?"checked":""}> Outlines</label>
       <label class="inline tl-zoom">Zoom <input id="tlZoom" type="range" min="5" max="200" step="1" value="${pps}" aria-label="Timeline zoom"></label>
       <button class="btn" id="tlSend" data-act="tl-send"></button></div>
     <div class="tl-scroll" id="tlScroll"><div class="tl-inner" style="width:${170+W}px">
-      <div class="tl-row tl-ruler"><div class="tl-head tl-corner">Time</div><div class="tl-track" id="tlRuler" style="width:${W}px">${ticks}<span class="tl-end" style="left:${TT.duration*pps}px" title="End of timeline"></span></div></div>
+      <div class="tl-row tl-ruler"><div class="tl-head tl-corner">Time</div><div class="tl-track" id="tlRuler" style="width:${W}px">${ticks}${marks}<span class="tl-end" style="left:${TT.duration*pps}px" title="End of timeline"></span></div></div>
       ${lanes.map(l=>l.hdr?`<div class="tl-row tl-grp"><div class="tl-head">${esc(l.name)}</div><div class="tl-track" style="width:${W}px"></div></div>`
-        :`<div class="tl-row" data-lane="${l.id}"><div class="tl-head" title="${esc(l.name)}"><span class="chip" style="background:${l.color}"></span><span class="nm">${esc(l.name)}</span></div>
+        :`<div class="tl-row${l.audio?" aud":" vis"}${laneSt(l.id).mute?" muted":""}" data-lane="${l.id}">${laneHead(l)}
           <div class="tl-track" data-lane="${l.id}" style="width:${W}px">${(clipsBy[l.id]||[]).sort((a,b)=>a.start-b.start).map(clipHTML).join("")}</div></div>`).join("")}
+      ${(TT.markers||[]).map(mk=>`<div class="tl-mkline" style="left:${170+mk.t*pps}px"></div>`).join("")}
       <div class="tl-ph" id="tlPh" style="left:${170+tl.t*pps}px"><span></span></div>
     </div></div>
-    <p class="note tl-help">Drag tiles from the media library onto a lane. Drag clips to move them (even to another surface), drag their edges to trim. Overlap two clips on a lane to transition. <kbd>Space</kbd> play/pause · <kbd>S</kbd> split · <kbd>Delete</kbd> remove · <kbd>←</kbd><kbd>→</kbd> step</p>`;
+    <p class="note tl-help"><kbd>Space</kbd> play · <kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> back/stop/play · <kbd>↑</kbd><kbd>↓</kbd> edit points · <kbd>S</kbd> split · <kbd>[</kbd><kbd>]</kbd> trim to playhead · <kbd>⇧</kbd>-click select more · <kbd>⌘C</kbd>/<kbd>⌘V</kbd> copy/paste · <kbd>⇧Delete</kbd> ripple delete · <kbd>⇧M</kbd> marker. Drag the small squares on a clip to fade picture (top) or sound (bottom); drag the white line to set the volume.</p>`;
   const nsc=$("#tlScroll");nsc.scrollLeft=sl;nsc.scrollTop=st;renderTLTransport();
+  requestAnimationFrame(()=>dock.querySelectorAll("canvas.cl-wave").forEach(drawWave));
 }
 function renderTLTransport(){
   const p=$("#tlPlay");if(p)p.textContent=tl.playing?"⏸ Pause":"▶ Play";
-  const s=$("#tlSend");if(s){const on=rt.outSrc==="timeline";s.setAttribute("aria-pressed",on);s.textContent=on?"Projectors: showing timeline":"Projectors: showing cues";s.title=on?"Switch the projectors back to the cue show; Play then only previews here":"Send the timeline to the projectors";}
+  const s=$("#tlSend");if(s&&rt.liveEdit){s.hidden=true;}else if(s){s.hidden=false;const on=rt.outSrc==="timeline";s.setAttribute("aria-pressed",on);s.textContent=on?"Projectors: showing timeline":"Projectors: showing cues";s.title=on?"Switch the projectors back to the cue show; Play then only previews here":"Send the timeline to the projectors";}
 }
 function updateTL(){
   if(rt.mode!=="timeline")return;const ph=$("#tlPh"),tc=$("#tlTC");if(!ph)return;
@@ -710,30 +812,51 @@ function updateTL(){
 }
 let tdrag=null;
 const dockEl=$("#tlDock");
+function refreshClip(c){const el=document.querySelector(`.clip[data-clip="${c.id}"]`);if(!el)return null;const t=document.createElement("div");t.innerHTML=clipHTML(c);const n=t.firstElementChild;el.replaceWith(n);n.querySelectorAll("canvas.cl-wave").forEach(drawWave);return n;}
 dockEl.addEventListener("pointerdown",e=>{
   if(e.button!==0)return;
+  if(e.target.closest("button"))return;
   const clipEl=e.target.closest(".clip");
   if(clipEl){const c=tlClip(clipEl.dataset.clip);if(!c)return;e.preventDefault();
-    const sameSel=rt.tsel===c.id;rt.tsel=c.id;const h=e.target.dataset.h;
-    tdrag={kind:"clip",c,el:clipEl,mode:h==="l"?"l":h==="r"?"r":"move",x0:e.clientX,o:{start:c.start,dur:c.dur,in:+c.in||0,lane:c.lane},moved:false};
-    dockEl.setPointerCapture(e.pointerId);document.querySelectorAll(".clip.sel").forEach(x=>x.classList.remove("sel"));clipEl.classList.add("sel");if(!sameSel)renderPanel();return;}
+    const add=e.shiftKey||e.metaKey||e.ctrlKey,inSel=rt.tsel===c.id||rt.tmulti.has(c.id),lk=laneSt(c.lane).lock;
+    if(add){tlSelect(c.id,true);renderTimeline();renderPanel();return;}
+    if(!inSel)tlSelect(c.id,false);else rt.tsel=c.id;
+    if(lk){renderTimeline();renderPanel();toast(`${laneName(c.lane)} is locked. Unlock it in its lane header to move clips.`);return;}
+    const fh=e.target.dataset.fh,h=e.target.dataset.h;
+    // drag the volume line inside the sound band
+    const band=e.target.closest(".cl-band");let vol=false;
+    if(band&&!fh){const r=band.getBoundingClientRect(),aud=isAudioLane(c.lane),k=(e.clientX-r.left)/r.width,g=clipGain(c,c.start+k*c.dur,aud?c.level??1:c.vol??1,aud?c.tin:c.afi,aud?c.fout:c.afo);
+      if(Math.abs((r.top+(1-g)*r.height)-e.clientY)<6)vol={top:r.top,h:r.height};}
+    const ids=tlSelIds();
+    tdrag={kind:"clip",c,el:clipEl,mode:fh?"fade":vol?"vol":h==="l"?"l":h==="r"?"r":"move",fh,vol,x0:e.clientX,y0:e.clientY,
+      o:{start:c.start,dur:c.dur,in:+c.in||0,lane:c.lane},group:ids.length>1&&!fh&&!vol&&!h?ids.filter(id=>id!==c.id).map(id=>{const x=tlClip(id);return{c:x,start:x.start};}).filter(g=>!laneSt(g.c.lane).lock):null,moved:false};
+    dockEl.setPointerCapture(e.pointerId);
+    document.querySelectorAll(".clip.sel").forEach(x=>{if(!ids.includes(x.dataset.clip))x.classList.remove("sel");});clipEl.classList.add("sel");renderPanel();return;}
   const ruler=e.target.closest("#tlRuler"),track=e.target.closest(".tl-track[data-lane]");
   if(ruler||track){const r=(ruler||track).getBoundingClientRect();tlSeek((e.clientX-r.left)/tl.pps);tdrag={kind:"scrub",left:r.left};dockEl.setPointerCapture(e.pointerId);
-    if(track&&rt.tsel){rt.tsel=null;document.querySelectorAll(".clip.sel").forEach(x=>x.classList.remove("sel"));renderPanel();}}
+    if(track&&(rt.tsel||rt.tmulti.size)){tlClearSel();document.querySelectorAll(".clip.sel").forEach(x=>x.classList.remove("sel"));renderPanel();}}
 });
 dockEl.addEventListener("pointermove",e=>{
   if(!tdrag)return;
   if(tdrag.kind==="scrub"){tlSeek((e.clientX-tdrag.left)/tl.pps);return;}
   const d=tdrag,c=d.c,o=d.o,dt=(e.clientX-d.x0)/tl.pps,m=media(c.mediaId),src=m&&(m.kind==="video"||m.kind==="audio");
-  if(Math.abs(e.clientX-d.x0)>2)d.moved=true;if(!d.moved)return;
-  if(d.mode==="move"){c.start=snapMove(Math.max(0,o.start+dt),o.dur,c.id);
-    const row=document.elementFromPoint(e.clientX,e.clientY)?.closest(".tl-row[data-lane]");
-    if(row&&isAudioLane(row.dataset.lane)===isAudioLane(o.lane)&&row.dataset.lane!==c.lane){c.lane=row.dataset.lane;row.querySelector(".tl-track").appendChild(d.el);}}
+  if(Math.abs(e.clientX-d.x0)>2||Math.abs(e.clientY-d.y0)>2)d.moved=true;if(!d.moved)return;
+  if(d.mode==="fade"){const r=d.el.getBoundingClientRect(),aud=isAudioLane(c.lane);
+    const inSide=d.fh==="vi"||d.fh==="ai",len=clamp(inSide?(e.clientX-r.left)/tl.pps:(r.right-e.clientX)/tl.pps,0,c.dur);
+    const key={vi:"tin",vo:"fout",ai:aud?"tin":"afi",ao:aud?"fout":"afo"}[d.fh];c[key]=+len.toFixed(2);if(key==="tin"&&!aud&&c.ttype==="cut")c.ttype="xfade";
+    d.el=refreshClip(c)||d.el;return;}
+  if(d.mode==="vol"){const v=+clamp(1-(e.clientY-d.vol.top)/d.vol.h,0,1).toFixed(2);if(isAudioLane(c.lane))c.level=v;else c.vol=v;d.el=refreshClip(c)||d.el;return;}
+  if(d.mode==="move"){c.start=snapMove(Math.max(0,o.start+dt),o.dur,c.id);const sh=c.start-o.start;
+    if(d.group){const minS=Math.min(...d.group.map(g=>g.start));const k=Math.max(sh,-minS);if(k!==sh)c.start=o.start+k;
+      for(const g of d.group){g.c.start=Math.max(0,g.start+(c.start-o.start));const ge=document.querySelector(`.clip[data-clip="${g.c.id}"]`);if(ge)ge.style.left=g.c.start*tl.pps+"px";}}
+    else{const row=document.elementFromPoint(e.clientX,e.clientY)?.closest(".tl-row[data-lane]"),nl=row?.dataset.lane,mk=m?.kind;
+      const ok=nl&&nl!==c.lane&&!laneSt(nl).lock&&(isAudioLane(nl)?(mk==="audio"||mk==="video"):mk!=="audio")&&(isAudioLane(nl)===isAudioLane(o.lane));
+      if(ok){c.lane=nl;row.querySelector(".tl-track").appendChild(d.el);}}}
   else if(d.mode==="l"){let ns=snapT(clamp(o.start+dt,0,o.start+o.dur-0.1),c.id);if(src)ns=Math.max(ns,o.start-o.in);const k=ns-o.start;c.start=ns;c.dur=o.dur-k;if(src)c.in=Math.max(0,o.in+k);}
   else{const ne=snapT(o.start+o.dur+dt,c.id);c.dur=Math.max(0.1,ne-o.start);const sd=srcDur(m);if(sd)c.dur=Math.min(c.dur,sd-(+c.in||0));}
   d.el.style.left=c.start*tl.pps+"px";d.el.style.width=Math.max(6,c.dur*tl.pps)+"px";
 });
-const tlUp=()=>{if(!tdrag)return;const d=tdrag;tdrag=null;if(d.kind==="clip"&&d.moved){delete d.c.auto;if(d.c.start+d.c.dur>T().duration)T().duration=Math.ceil(d.c.start+d.c.dur+5);save();renderTimeline();renderPanel();}};
+const tlUp=()=>{if(!tdrag)return;const d=tdrag;tdrag=null;if(d.kind==="clip"&&d.moved){delete d.c.auto;growTo(d.c);if(d.group)d.group.forEach(g=>growTo(g.c));save();renderTimeline();renderPanel();}};
 dockEl.addEventListener("pointerup",tlUp);dockEl.addEventListener("pointercancel",tlUp);
 dockEl.addEventListener("wheel",e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();const sc=$("#tlScroll"),r=sc.getBoundingClientRect(),tAt=(e.clientX-r.left-170+sc.scrollLeft)/tl.pps;
   tl.pps=clamp(tl.pps*Math.exp(-clamp(e.deltaY,-50,50)*0.01),5,200);renderTimeline();const s2=$("#tlScroll");s2.scrollLeft=Math.max(0,tAt*tl.pps-(e.clientX-r.left-170));}},{passive:false});
@@ -751,28 +874,46 @@ function provFrameHTML(){
     <p class="note">${s.outputId!==rt.out?`${esc(s.name)} is on ${esc(output(s.outputId).name)}. Pick that projector above the stage to drag it there.`:`On the stage, drag inside the dashed box to move “${esc(m.name)}”, or drag a white corner to resize it.`}</p></div>`;
 }
 function timelinePanel(){
-  const TT=T(),c=tlClip(rt.tsel);
+  const TT=T(),c=tlClip(rt.tsel),ids=tlSelIds();
   let h=`<div class="sec"><div class="sec-head"><h3>Timeline</h3></div>
     <div class="vt-grid"><label for="tl-dur">Length (s)</label><input id="tl-dur" type="number" min="1" step="1" value="${TT.duration}">
       <label for="tl-loop">At the end</label><select id="tl-loop">${opt("0","Stop",TT.loop?"1":"0")}${opt("1","Loop back to the start",TT.loop?"1":"0")}</select></div>
-    <p class="note">Program a whole sequence in time instead of cue by cue. To run it during a show, add a <b>Timeline</b> cue, or press <b>Projectors: showing cues</b> to send it out directly. <kbd>Space</kbd> plays the timeline in this mode; the GO button still fires cues.</p></div>`;
-  if(!c)return h+`<div class="sec"><p class="note" style="margin:0">Select a clip to edit it, or drag something from the media library onto a lane.</p></div>`;
-  const m=media(c.mediaId),src=m&&(m.kind==="video"||m.kind==="audio"),aud=isAudioLane(c.lane);
+    <p class="note">${rt.liveEdit?"Live edits is on, so the projectors show this timeline while you work here.":"Blind: the projectors keep the cue show while you edit. Press Play or a Timeline cue to send it out."} To run it during a show, add a <b>Timeline</b> cue. <kbd>Space</kbd> plays the timeline here; the GO button still fires cues.</p></div>`;
+  const mks=TT.markers||[];
+  if(mks.length)h+=`<div class="sec"><div class="sec-head"><h3>Markers</h3><div class="acts"><button class="btn" data-act="tl-marker">+ At playhead</button></div></div>
+    <div class="mk-list">${mks.map(mk=>`<div class="mk-row"><button class="btn ghost" data-act="mk-go" data-id="${mk.id}" title="Jump here">▸</button><input type="text" data-mk="${mk.id}" value="${esc(mk.name)}" aria-label="Marker name"><input type="number" step="0.01" min="0" data-mk="${mk.id}" data-f="t" value="${mk.t}" aria-label="Marker time (s)"><button class="btn ghost danger" data-act="mk-del" data-id="${mk.id}" aria-label="Delete marker">✕</button></div>`).join("")}</div></div>`;
+  if(ids.length>1)return h+`<div class="sec"><div class="sec-head"><h3>${ids.length} clips selected</h3><div class="acts"><button class="btn" data-act="tl-dup">Duplicate</button><button class="btn ghost danger" data-act="tl-del">Delete</button></div></div>
+    <p class="note" style="margin:0">Drag any of them to move them together. <kbd>⌘C</kbd> copies them, <kbd>⇧Delete</kbd> deletes them and closes the gaps. <button class="btn ghost" data-act="tl-sel-none">Clear selection</button></p></div>`;
+  if(!c)return h+`<div class="sec"><p class="note" style="margin:0">Select a clip to edit it, or drag something from the media library onto a lane. Videos bring their sound with them.</p></div>`;
+  const m=media(c.mediaId),src=m&&(m.kind==="video"||m.kind==="audio"),aud=isAudioLane(c.lane),vid=m&&m.kind==="video"&&!aud;
   const lanes=laneList().filter(l=>!l.hdr&&!!l.audio===aud);
-  h+=`<div class="sec"><div class="sec-head"><h3>Clip</h3><div class="acts"><button class="btn" data-act="tl-dup">Duplicate</button><button class="btn ghost danger" data-act="tl-del">Delete</button></div></div>
-    <button class="pickbtn" data-act="tl-pick"><span class="pk-sw" style="${m?swatchCSS(m):"background:#000"}"></span><span class="pk-nm">${esc(m?.name||"Missing media")}</span><span class="pk-k">${m?esc(m.kind==="gen"?"effect":m.kind):""}</span><span aria-hidden="true">▾</span></button>
+  h+=`<div class="sec"><div class="sec-head"><h3>${aud?"Sound clip":"Clip"}</h3><div class="acts"><button class="btn" data-act="tl-dup">Duplicate</button><button class="btn ghost danger" data-act="tl-del">Delete</button></div></div>
+    <button class="pickbtn" data-act="tl-pick"><span class="pk-sw" style="${m?swatchCSS(m):"background:#000"}"></span><span class="pk-nm">${esc(m?.name||"Missing media")}</span><span class="pk-k">${m?esc(m.kind==="gen"?"effect":aud&&m.kind==="video"?"sound of video":m.kind):""}</span><span aria-hidden="true">▾</span></button>
     <div class="vt-grid" style="margin-top:8px">
       <label for="tc-lane">${aud?"Lane":"Surface"}</label><select id="tc-lane">${lanes.map(l=>opt(l.id,l.name+(aud?"":` · ${output(surf(l.id)?.outputId)?.name||""}`),c.lane)).join("")}</select>
       <label for="tc-start">Starts at (s)</label><input id="tc-start" type="number" min="0" step="0.01" data-tc="start" value="${+c.start.toFixed(2)}">
       <label for="tc-dur">Length (s)</label><input id="tc-dur" type="number" min="0.1" step="0.01" data-tc="dur" value="${+c.dur.toFixed(2)}">
       ${src?`<label for="tc-in">Source starts at (s)</label><input id="tc-in" type="number" min="0" step="0.01" data-tc="in" value="${+(+c.in||0).toFixed(2)}">`:""}
-      ${aud?"":`<label for="tc-ttype">Transition in</label><select id="tc-ttype" data-tc="ttype">${Object.entries(TRANS).map(([k,v])=>opt(k,v,c.ttype||"xfade")).join("")}</select>`}
-      <label for="tc-tin">${aud?"Fade in (s)":"Transition time (s)"}</label><input id="tc-tin" type="number" min="0" step="0.1" data-tc="tin" value="${+c.tin||0}">
+      ${aud?"":`<label for="tc-ttype">Transition in</label><select id="tc-ttype" data-tc="ttype">${Object.entries(TRANS).map(([k,v])=>opt(k,v,c.ttype||"xfade")).join("")}</select>
+      <label for="tc-tin">Transition time (s)</label><input id="tc-tin" type="number" min="0" step="0.1" data-tc="tin" value="${+c.tin||0}">
       <label for="tc-fout">Fade out (s)</label><input id="tc-fout" type="number" min="0" step="0.1" data-tc="fout" value="${+c.fout||0}">
-      <label for="tc-level">${aud?"Volume":"Brightness"}</label><div class="inline"><input id="tc-level" type="range" min="0" max="1" step="0.01" data-tc="level" value="${c.level??1}"><output>${Math.round((c.level??1)*100)}%</output></div>
+      <label for="tc-level">Brightness</label><div class="inline"><input id="tc-level" type="range" min="0" max="1" step="0.01" data-tc="level" value="${c.level??1}"><output>${Math.round((c.level??1)*100)}%</output></div>`}
     </div>
-    <div class="btns"><button class="btn" data-act="tl-split">✂ Split at playhead</button><button class="btn" data-act="tl-goto">Playhead to clip start</button></div>
-    <p class="note">${src&&srcDur(m)?`Source is ${fmtTC(srcDur(m))} long. `:""}${aud?"":"The transition plays over whatever is under this clip on the same surface, so overlap the previous clip by the transition time for a smooth change."}</p></div>`;
+    <div class="btns"><button class="btn" data-act="tl-split">✂ Split at playhead</button><button class="btn" data-act="tl-goto">Playhead to clip start</button></div></div>`;
+  // sound
+  if(aud)h+=`<div class="sec"><div class="sec-head"><h3>Sound</h3>${c.link?`<div class="acts"><button class="btn" data-act="tl-rejoin">Join back to video</button></div>`:""}</div>
+    <div class="vt-grid"><label for="tc-level">Volume</label><div class="inline"><input id="tc-level" type="range" min="0" max="1" step="0.01" data-tc="level" value="${c.level??1}"><output>${Math.round((c.level??1)*100)}%</output></div>
+      <label for="tc-tin">Fade in (s)</label><input id="tc-tin" type="number" min="0" step="0.1" data-tc="tin" value="${+c.tin||0}">
+      <label for="tc-fout">Fade out (s)</label><input id="tc-fout" type="number" min="0" step="0.1" data-tc="fout" value="${+c.fout||0}"></div>
+    <p class="note">${c.link?"This is the sound separated from a video. ":""}On the clip, drag the small squares to fade and the white line to change the volume.</p></div>`;
+  else if(vid){const noA=mediaRT[m.id]?.noAudio===true;
+    h+=`<div class="sec"><div class="sec-head"><h3>Sound</h3>${noA?"":`<div class="acts">${c.link?`<button class="btn" data-act="tl-rejoin">Join sound back</button>`:`<button class="btn" data-act="tl-sep" title="Move the sound to its own lane so you can edit it separately">Separate audio</button>`}</div>`}</div>
+    ${noA?`<p class="note" style="margin:0">This video has no sound.</p>`:c.link?`<p class="note" style="margin:0">The sound is on ${esc(laneName(tlClip(c.link)?.lane||"a1"))}. Select it there to change its volume and fades.</p>`:`
+    <div class="vt-grid"><label class="inline" style="grid-column:1/-1"><input type="checkbox" data-tc="mute" ${c.mute?"":"checked"}> Play this video's sound</label>
+      <label for="tc-vol">Volume</label><div class="inline"><input id="tc-vol" type="range" min="0" max="1" step="0.01" data-tc="vol" value="${c.vol??1}" ${c.mute?"disabled":""}><output>${Math.round((c.vol??1)*100)}%</output></div>
+      <label for="tc-afi">Fade in (s)</label><input id="tc-afi" type="number" min="0" step="0.1" data-tc="afi" value="${+c.afi||0}" ${c.mute?"disabled":""}>
+      <label for="tc-afo">Fade out (s)</label><input id="tc-afo" type="number" min="0" step="0.1" data-tc="afo" value="${+c.afo||0}" ${c.mute?"disabled":""}></div>
+    <p class="note">The sound plays with the video. Drag the bottom squares on the clip to fade it, or use Separate audio to edit it on its own lane.</p>`}</div>`;}
   return h+provFrameHTML();
 }
 /* ---------- stage + projector tabs ---------- */
@@ -783,6 +924,7 @@ function showStage(){
   frameEl.querySelectorAll("canvas.outc").forEach(x=>{if(x!==c)x.remove();});
   if(c&&c.parentNode!==frameEl)frameEl.insertBefore(c,ov);
   if(rt.room){const b=roomBox();frameEl.style.aspectRatio=`${b.w.toFixed(4)} / ${b.h.toFixed(4)}`;}else frameEl.style.aspectRatio=`${o.res[0]} / ${o.res[1]}`;
+  if(typeof sizeStage==="function")sizeStage();
   applyView();
 }
 const ICON_EDIT='<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10.8 2.7l2.5 2.5L6 12.5H3.5V10z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
@@ -825,9 +967,9 @@ function composeRoom(n){if(!rt.room||!gl)return;const r=ov.getBoundingClientRect
   const k=Math.min(1,2560/Math.max(ov.width,ov.height)),W=Math.max(1,Math.round(ov.width*k)),H=Math.max(1,Math.round(ov.height*k));
   if(roomCv.width!==W||roomCv.height!==H){roomCv.width=W;roomCv.height=H;}
   if(glc.width<W||glc.height<H){rt.roomGL=[Math.max(W,glc.width),Math.max(H,glc.height)];ensureOutputs();}
-  const c=roomCx,toTL=rt.outSrc==="timeline";c.globalCompositeOperation="source-over";c.fillStyle="#000";c.fillRect(0,0,W,H);c.globalCompositeOperation="lighter";
+  const c=roomCx,ps=projState();c.globalCompositeOperation="source-over";c.fillStyle="#000";c.fillRect(0,0,W,H);c.globalCompositeOperation="lighter";
   for(const o of show.outputs){const x=stageXf(o),pv=o.id===rt.out&&stageUsesPvc();
-    const state=pv?(previewActive()?rt.preview.surf:tl.surf):(toTL?tl.surf:rt.surf),tp=pv||toTL?false:rt.testPattern;
+    const state=pv?(previewActive()?rt.preview.surf:tl.surf):ps.state,tp=pv?false:ps.tp;
     drawOutput(o,n/1000,state,null,tp,{w:W,h:H,xf:[x.W/r.width,x.H/r.height,x.tx/r.width,x.ty/r.height]});
     c.drawImage(glc,0,glc.height-H,W,H,0,0,W,H);}
   c.globalCompositeOperation="source-over";}
@@ -1081,6 +1223,7 @@ function scaleBodies(bodies,orig,anc,sx,sy){bodies.forEach((a,bi)=>a.forEach((_,
 const selOnStage=()=>{const so=selObj();return so&&rt.sel.kind!=="group"&&so.outputId===rt.out?so:null;};
 ov.addEventListener("pointerdown",e=>{
   if(rt.mode!=="map")return;
+  if(show.mapLocked&&!rt.drawing){toast("Mapping is locked so nothing gets bumped during the show. Click Unlock mapping above the stage to edit.");return;}
   const[x,y,r]=toN(e);const nearXY=(px,py,R)=>Math.hypot((px-x)*r.width,(py-y)*r.height)<R,near=pt=>nearXY(pt[0],pt[1],14);
   if(rt.drawing){
     const dp=rt.drawing.pts;
@@ -1154,7 +1297,7 @@ function hoverCursor(x,y,r){
   ov.style.cursor=cur;
 }
 ov.addEventListener("pointerleave",()=>{if(rt.drawing)rt.drawing.hover=null;});
-const endDrag=()=>{if(drag){drag=null;save();}};
+const endDrag=()=>{if(drag){drag=null;if(rt.mode==="map"){show.tour=show.tour||{};show.tour.fit=true;}save();}};
 ov.addEventListener("pointerup",endDrag);ov.addEventListener("pointercancel",endDrag);
 ov.addEventListener("dblclick",e=>{
   if(rt.mode!=="map"||rt.drawing||!editingOutline())return;
@@ -1313,7 +1456,7 @@ function go(){
   ac();
   if(rt.playhead>=show.cues.length){toast("End of the cue list. Click a cue to stand by on it.");return;}
   if(rt.testPattern){rt.testPattern=false;syncTP();}
-  fire(rt.playhead);rt.previewOn=false;
+  fire(rt.playhead);rt.previewOn=false;show.tour=show.tour||{};show.tour.go=true;
   let j=rt.playhead+1;while(j<show.cues.length&&trig(show.cues[j]).type!=="go")j++;
   rt.playhead=j;renderPanel();
 }
@@ -1399,7 +1542,7 @@ function renderMediaInsp(){
       <div class="field"><label for="md-speed">Speed</label><div class="inline"><input id="md-speed" type="range" min="0" max="4" step="0.05" data-md="speed" value="${m.speed??1}"><output>${(+(m.speed??1)).toFixed(2)}×</output></div></div>`;
   }
   if(m.kind==="video"&&mediaRT[m.id]?.dur)h+=`<div class="field"><span class="lab">Clip</span><span class="mono" style="font-size:12.5px">${fmtDur(mediaRT[m.id].dur)} · ${mediaRT[m.id].w}×${mediaRT[m.id].h}</span></div>`;
-  if(m.kind==="video")h+=`<div class="field"><span class="lab">Sound</span><label class="inline"><input id="md-sound" type="checkbox" data-md="sound" ${m.sound?"checked":""}> Play this video's own soundtrack</label></div>`;
+  if(m.kind==="video")h+=`<div class="field"><span class="lab">Sound in cues</span><label class="inline"><input id="md-sound" type="checkbox" data-md="sound" ${m.sound?"checked":""}> Play its sound when a cue shows it</label></div><p class="note" style="margin-top:-4px">On the timeline, each clip has its own sound switch and fades.</p>`;
   if(mediaRT[m.id]?.err)h+=`<p class="note media-err">${esc(mediaRT[m.id].err)}</p>`;
   if(m.kind==="video"&&mediaRT[m.id]){const r=mediaRT[m.id],v=document.createElement("video"),cp=t=>v.canPlayType(t)?"yes":"no";
     h+=`<details class="vcheck"><summary>Playback check</summary><div class="mono">
@@ -1509,7 +1652,43 @@ function loadFile(m,f){
 const panel=$("#panel");
 function opt(v,label,cur){return`<option value="${esc(v)}"${String(cur)===String(v)?" selected":""}>${esc(label)}</option>`}
 function range(id,attr,val,min,max,step,suffix=""){return`<div class="inline"><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" ${attr} value="${val}"><output>${suffix==="%"?Math.round(val*100)+"%":(+val).toFixed(2)+suffix}</output></div>`}
-function renderPanel(){
+// Timeline mode puts the media library beside the stage and timeline so both are visible.
+function sizeStage(){const f=frameEl;if(!f)return;
+  if(document.body.classList.contains("tl-mode")){const m=/([\d.]+)\s*\/\s*([\d.]+)/.exec(f.style.aspectRatio||"16 / 9"),ratio=m?(+m[1]/+m[2]):16/9;
+    const w=Math.min(f.parentElement.clientWidth,Math.max(280,window.innerHeight*0.34*ratio));f.style.width=w+"px";f.style.marginInline="auto";}
+  else{f.style.width="";f.style.marginInline="";}}
+window.addEventListener("resize",()=>sizeStage());
+function placeBin(){const tlm=rt.mode==="timeline",w=$("#binWrap"),side=$("#sideBin");if(!w||!side)return;document.body.classList.toggle("tl-mode",tlm);side.hidden=!tlm;
+  if(tlm&&w.parentNode!==side)side.appendChild(w);else if(!tlm&&w.parentNode===side){const k=document.querySelector(".col .keys");k.parentNode.insertBefore(w,k);}sizeStage();}
+function syncLockBtn(){const b=$("#lockBtn");if(!b)return;b.setAttribute("aria-pressed",!!show.mapLocked);b.textContent=show.mapLocked?"🔒 Unlock mapping":"Lock mapping";b.hidden=rt.mode!=="map";}
+// Getting started: five steps from an empty show to a running one, ticked off as you do them.
+function tourSteps(){const tr=show.tour||{};
+  const proj=DESK?show.outputs.some(o=>displayFor(o)):Object.values(outWins).some(w=>w&&!w.closed);
+  return[
+    {k:"proj",done:proj,t:"Connect a projector",d:DESK?"Click + Projector and pick it from the list.":"Open each projector's output window and drag it to that screen."},
+    {k:"fit",done:!!tr.fit,t:"Fit a surface onto your set",d:"With the test grid on, drag a surface's corners onto a wall, box or prop."},
+    {k:"media",done:show.media.some(m=>m.kind==="video"||m.kind==="image"||m.kind==="audio"),t:"Add your videos and images",d:"Upload them, or drop files into the media library."},
+    {k:"cue",done:show.cues.some(c=>c.type==="look"&&(c.assign||[]).some(r=>r.mediaId&&media(r.mediaId)?.kind!=="gen"))||T().clips.length>0,t:"Build a cue or a timeline",d:"+ Cue walks you through it, or drag media onto the timeline."},
+    {k:"go",done:!!tr.go,t:"Run it",d:"Press GO (or Space) in Cues, or Play in the timeline."}];}
+function tourHTML(){try{if(localStorage.getItem("cuelight-tour-hidden")==="1")return"";}catch(e){}
+  const st=tourSteps(),n=st.filter(x=>x.done).length;if(n===st.length)return"";const next=st.find(x=>!x.done);
+  return`<div class="sec tour"><div class="sec-head"><h3>Get started · ${n} of ${st.length}</h3><button class="btn ghost" data-act="tour-hide" aria-label="Hide the getting-started steps" title="Hide">✕</button></div>
+    <ol class="tour-list">${st.map(x=>`<li class="${x.done?"done":x===next?"next":""}"><span class="tk-b" aria-hidden="true">${x.done?"✓":""}</span><div><b>${x.t}</b>${x===next?`<p class="note">${x.d}</p><button class="btn primary" data-act="tour-step" data-v="${x.k}">${{proj:"Connect projector",fit:"Show test grid",media:"Upload media",cue:"Build a cue",go:"Go to cues"}[x.k]}</button>`:""}</div></li>`).join("")}</ol></div>`;}
+function tourStep(k){
+  if(k==="proj"){if(DESK)openScreenPicker();else{rt.mode="map";renderPanel();openOutput(rt.out);}}
+  else if(k==="fit"){rt.mode="map";rt.testPattern=true;syncTP();renderPanel();toast("Test grid on. Drag the white corner handles until the grid sits exactly on your set piece.");}
+  else if(k==="media")$("#fileIn").click();
+  else if(k==="cue"){rt.mode="cues";renderPanel();wizOpen("new");}
+  else if(k==="go"){rt.mode="cues";renderPanel();toast("Press GO or Space to run the cue on standby.");}}
+const HELP=[["Running the show",[["Space","GO: fire the cue on standby"],["Esc","Panic: fade everything out (twice: hard stop)"],["↑ ↓","Move the standby cue (Cues)"]]],
+  ["Anywhere",[["⌘Z / ⇧⌘Z","Undo / redo"],["⌘S","Save now (it also saves by itself)"],["⌘O","Projects"],["M","Room view: every projector on one stage"],["T","Test grid on and off"],["?","This list"]]],
+  ["Map",[["Drag corners","Fit a surface onto your set"],["Drag a + on an edge","Add a point"],["Double-click a point","Curve or sharpen it"],["Alt-drag / Alt-scroll","Move / size the media inside a surface"],["⌘[ ⌘]","Send back / bring forward"],["= − 0","Zoom the stage in, out, to fit"]]],
+  ["Timeline",[["Space · J K L","Play/pause · back, stop, play"],["↑ ↓ · Home End","Previous/next edit point · start, end"],["S · [ ]","Split · trim start/end to playhead"],["⇧-click · ⌘A","Select more clips · select all"],["⌘C ⌘X ⌘V · ⌘D","Copy, cut, paste at playhead · duplicate"],["Delete · ⇧Delete","Delete · delete and close the gap"],["⇧M","Add a marker"],["⌘-scroll","Zoom the timeline"]]]];
+function openHelp(){let m=$("#helpModal");if(!m){m=document.createElement("div");m.className="modal-bg";m.id="helpModal";document.body.appendChild(m);}
+  m.innerHTML=`<div class="modal helpmodal" role="dialog" aria-modal="true" aria-labelledby="helpTitle"><div class="wz-head"><h2 id="helpTitle">Keyboard shortcuts</h2><button class="btn ghost" data-act="help-close" aria-label="Close">✕</button></div>
+    <div class="help-grid">${HELP.map(([g,rows])=>`<section><h3>${g}</h3><dl>${rows.map(([k,v])=>`<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(v)}</dd>`).join("")}</dl></section>`).join("")}</div></div>`;m.hidden=false;}
+function closeHelp(){const m=$("#helpModal");if(m)m.hidden=true;}
+function renderPanel(){placeBin();syncLockBtn();
   if(rt.mode==="cues"){syncPreview();ensureCueEdit();}
   $("#modeMap").setAttribute("aria-pressed",rt.mode==="map");$("#modeCues").setAttribute("aria-pressed",rt.mode==="cues");$("#modeTL").setAttribute("aria-pressed",rt.mode==="timeline");
   $("#stageHint").textContent=rt.room&&rt.roomArrange?"Arrange: drag a projector to where it sits in the room; drag its orange corner to size it. This only changes the room view, never what a projector sends out.":(rt.room?`Room view · editing ${curOut()?.name||""}. Click any surface on any projector to edit it; it stays on its own projector. `:"")+(rt.drawing?"Click around the edge of your set piece to place points. Shift-click for a curved point. Click the first point or press Enter to finish; Esc cancels."
@@ -1522,7 +1701,7 @@ function renderPanel(){
   ov.style.cursor=rt.mode==="map"?"crosshair":"default";
   if(rt.mode==="cues"){syncPreview();ensureCueEdit();}
   if(rt.mode==="cues"){syncPreview();ensureCueEdit();}
-  panel.innerHTML=rt.mode==="map"?mapPanel():rt.mode==="timeline"?timelinePanel():cuePanel();
+  panel.innerHTML=(rt.mode==="timeline"?"":tourHTML())+(rt.mode==="map"?mapPanel():rt.mode==="timeline"?timelinePanel():cuePanel());
   renderTimeline();
   showStage();syncPvBanner();
   const c=show.cues[rt.playhead];
@@ -1730,10 +1909,12 @@ function cueFrameHTML(c){
       <button class="btn" data-act="cfr-flip" data-v="fh" aria-pressed="${f.fh}">Flip ↔</button><button class="btn" data-act="cfr-flip" data-v="fv" aria-pressed="${f.fv}">Flip ↕</button>${cf.own?`<button class="btn ghost" data-act="cfr-reset">Use surface default</button>`:""}</div>
     <p class="note">${s.outputId!==rt.out?`${esc(s.name)} is on ${esc(output(s.outputId).name)}. Pick that projector above the stage to drag it there.`:`On the stage, drag inside the dashed box to move “${esc(m.name)}”, or drag a white corner to resize it.`}</p></div>`;
 }
+function syncLiveBtn(){const b=$("#liveBtn");if(!b)return;b.setAttribute("aria-pressed",rt.liveEdit);b.innerHTML=rt.liveEdit?`<span class="lv-dot"></span>Live edits`:"Blind edits";
+  b.title=rt.liveEdit?"Projectors show what you're editing. Click for Blind: edit without changing the projectors.":"Projectors hold the show while you edit. Click to show edits on the projectors.";}
 function syncPvBanner(){
   const bn=$("#pvBanner");if(!bn)return;const c=selCue();
   if(!c||c.type!=="look"){bn.hidden=true;return;}bn.hidden=false;
-  bn.innerHTML=previewActive()?`<span class="pv-dot"></span>Previewing cue ${esc(c.num)} · projectors unchanged <button class="btn" data-act="pv-off">Show live</button>`:`<span class="pv-dot live"></span>Live output <button class="btn" data-act="pv-on">Preview cue ${esc(c.num)}</button>`;
+  bn.innerHTML=previewActive()?(rt.liveEdit?`<span class="pv-dot edit"></span>Editing cue ${esc(c.num)} · projectors show it too · GO returns them to the show <button class="btn" data-act="pv-off">Back to the live show</button>`:`<span class="pv-dot"></span>Previewing cue ${esc(c.num)} · projectors unchanged (Blind) <button class="btn" data-act="pv-off">Show live</button>`):`<span class="pv-dot live"></span>Live output <button class="btn" data-act="pv-on">Preview cue ${esc(c.num)}</button>`;
 }
 function cuePanel(){
   let h=`<div class="sec"><div class="sec-head"><h3>Cue list</h3><div class="acts">
@@ -1862,6 +2043,18 @@ document.addEventListener("click",e=>{
     case"tl-dup":tlDup();break;
     case"tl-del":tlDel();break;
     case"tl-goto":{const c=tlClip(rt.tsel);if(c)tlSeek(c.start);break;}
+    case"tl-prev":tlJump(-1);break;
+    case"tl-next":tlJump(1);break;
+    case"tl-trim-s":tlTrimTo("start");break;
+    case"tl-trim-e":tlTrimTo("end");break;
+    case"tl-ripple":tlDel(true);break;
+    case"tl-marker":tlMarker();break;
+    case"tl-sep":tlSeparate();break;
+    case"tl-rejoin":tlRejoin();break;
+    case"tl-sel-none":tlClearSel();renderTimeline();renderPanel();break;
+    case"mk-go":{const mk=(T().markers||[]).find(x=>x.id===b.dataset.id);if(mk)tlSeek(mk.t);break;}
+    case"mk-del":{const TT=T();TT.markers=(TT.markers||[]).filter(x=>x.id!==b.dataset.id);save();renderTimeline();renderPanel();break;}
+    case"ln-mute":case"ln-lock":{const TT=T();TT.lanes=TT.lanes||{};const k=a==="ln-mute"?"mute":"lock",ls=TT.lanes[b.dataset.id]=TT.lanes[b.dataset.id]||{};ls[k]=!ls[k];save();renderTimeline();break;}
     case"tl-send":rt.outSrc=rt.outSrc==="timeline"?"cues":"timeline";tl.previewOnly=rt.outSrc!=="timeline";renderTLTransport();showStage();renderPanel();toast(rt.outSrc==="timeline"?"Projectors now show the timeline.":"Projectors now show the cue show.");break;
     case"tl-pick":rt.pick={tl:true};{const p=$("#picker");renderPicker();p.hidden=false;const r=b.getBoundingClientRect(),W=Math.min(420,window.innerWidth-24),H=p.offsetHeight;let x=r.left;if(x+W>window.innerWidth-12)x=window.innerWidth-12-W;let y=r.bottom+6;if(y+H>window.innerHeight-12)y=Math.max(12,r.top-6-H);p.style.left=Math.max(12,x)+"px";p.style.top=y+"px";p.style.width=W+"px";}break;
     case"wz-edit":{const c=show.cues[rt.playhead];if(c)wizOpen("edit",c,+b.dataset.i);break;}
@@ -1891,9 +2084,16 @@ document.addEventListener("click",e=>{
     case"pick-close":closePicker();break;
     case"undo":undo();break;
     case"redo":redo();break;
+    case"live-edit":rt.liveEdit=!rt.liveEdit;try{localStorage.setItem("cuelight-live-edit",rt.liveEdit?"1":"0");}catch(e){}syncLiveBtn();syncPvBanner();
+      renderTLTransport();toast(rt.liveEdit?"Live edits: projectors show the cue or timeline you're working on. GO returns them to the show.":"Blind: projectors only change when you press GO or play a timeline cue. Edits show on this screen only.");break;
     case"mode":rt.mode=b.dataset.v;rt.selPt=-1;rt.drawing=null;renderPanel();renderBin();break;
     case"go":go();break;
     case"panic":panic();break;
+    case"map-lock":show.mapLocked=!show.mapLocked;save();syncLockBtn();toast(show.mapLocked?"Mapping locked: surfaces and masks can't be dragged by accident. Cues and the timeline still work.":"Mapping unlocked.");break;
+    case"help":openHelp();break;
+    case"help-close":closeHelp();break;
+    case"tour-hide":try{localStorage.setItem("cuelight-tour-hidden","1");}catch(e){}renderPanel();break;
+    case"tour-step":tourStep(b.dataset.v);break;
     case"testpattern":rt.testPattern=!rt.testPattern;syncTP();break;
     case"fullscreen":fullscreen();break;
     case"output":openOutput(rt.out);break;
@@ -1998,10 +2198,11 @@ document.addEventListener("input",e=>{
     if(ds.md==="sound")vidSet.forEach(v=>{if(v._mid===m.id)v.muted=!val;});
     save();const tile=$(`.tile[data-id="${m.id}"]`);if(tile){tile.querySelector(".sw").style.cssText=swatchCSS(m);tile.querySelector(".nm").textContent=m.name;}return;}
   if(ds.tc){const c=tlClip(rt.tsel);if(!c)return;const k=ds.tc;
-    if(k==="ttype")c.ttype=val;else{let v=Math.max(0,parseFloat(t.value)||0);if(k==="dur")v=Math.max(0.1,v);if(k==="level")v=clamp(val,0,1);c[k]=v;}
-    if(k==="level"&&out)out.textContent=Math.round(c.level*100)+"%";
+    if(k==="ttype")c.ttype=val;else if(k==="mute"){c.mute=!val;}else{let v=Math.max(0,parseFloat(t.value)||0);if(k==="dur")v=Math.max(0.1,v);if(k==="level"||k==="vol")v=clamp(val,0,1);c[k]=v;}
+    if((k==="level"||k==="vol")&&out)out.textContent=Math.round(c[k]*100)+"%";
     if((k==="start"||k==="dur")&&c.start+c.dur>T().duration)T().duration=Math.ceil(c.start+c.dur+5);
-    save();const el=document.querySelector(`.clip[data-clip="${c.id}"]`);if(el)el.outerHTML=clipHTML(c);return;}
+    save();refreshClip(c);if(k==="mute")renderPanel();return;}
+  if(ds.mk){const mk=(T().markers||[]).find(x=>x.id===ds.mk);if(!mk)return;if(t.dataset.f==="t"){mk.t=clamp(parseFloat(t.value)||0,0,T().duration);T().markers.sort((a,b)=>a.t-b.t);}else mk.name=t.value||mk.name;save();renderTimeline();return;}
   if(t.id==="tl-dur"){T().duration=Math.max(1,parseFloat(t.value)||1);if(tl.t>T().duration)tl.t=T().duration;save();renderTimeline();return;}
   if(t.id==="tl-loop"){T().loop=t.value==="1";save();return;}
   if(t.id==="tc-lane"){const c=tlClip(rt.tsel);if(c){c.lane=t.value;save();renderTimeline();renderPanel();}return;}
@@ -2270,18 +2471,32 @@ function onKey(e){
     if(e.key==="Enter"){e.preventDefault();finishDrawing();return;}
     if(e.key==="Backspace"){e.preventDefault();rt.drawing.pts.pop();renderPanel();return;}
   }
-  if(e.key==="Escape"){e.preventDefault();if(rt.wiz){wizClose();return;}if($("#scrModal")&&!$("#scrModal").hidden){closeScreenPicker();return;}if(!$("#projModal").hidden&&$("#confirm").hidden){closeProjects();return;}if(!$("#picker").hidden){closePicker();return;}if(!$("#confirm").hidden){closeConfirm();return;}if(!$("#modal").hidden){$("#modal").hidden=true;return;}if([...document.querySelectorAll(".menu")].some(m=>!m.hidden)){closeMenus();return;}panic();return;}
+  if(e.key==="Escape"){e.preventDefault();if($("#helpModal")&&!$("#helpModal").hidden){closeHelp();return;}if(rt.wiz){wizClose();return;}if($("#scrModal")&&!$("#scrModal").hidden){closeScreenPicker();return;}if(!$("#projModal").hidden&&$("#confirm").hidden){closeProjects();return;}if(!$("#picker").hidden){closePicker();return;}if(!$("#confirm").hidden){closeConfirm();return;}if(!$("#modal").hidden){$("#modal").hidden=true;return;}if([...document.querySelectorAll(".menu")].some(m=>!m.hidden)){closeMenus();return;}panic();return;}
   if(rt.wiz){if(e.key==="Enter"&&!typing){e.preventDefault();if(rt.wiz.step<3){if(rt.wiz.step===1||wizSelCount(rt.wiz))rt.wiz.step++;renderWiz();}else wizCommit();}return;}
   if(typing)return;
+  if(e.key==="?"){e.preventDefault();openHelp();return;}
   if(rt.mode==="timeline"&&!e.metaKey&&!e.ctrlKey){
     if(e.code==="Space"){e.preventDefault();tlToggle();return;}
-    if(e.key==="Delete"||e.key==="Backspace"){if(rt.tsel){e.preventDefault();tlDel();}return;}
+    if(e.key==="Delete"||e.key==="Backspace"){if(tlSelIds().length){e.preventDefault();tlDel(e.shiftKey);}return;}
+    if(e.key==="["){e.preventDefault();tlTrimTo("start");return;}
+    if(e.key==="]"){e.preventDefault();tlTrimTo("end");return;}
+    if(e.key==="k"||e.key==="K"){e.preventDefault();tlPause();return;}
+    if(e.key==="l"||e.key==="L"){e.preventDefault();if(!tl.playing)tlToggle();return;}
+    if(e.key==="j"||e.key==="J"){e.preventDefault();tlSeek(tl.t-5);return;}
+    if(e.key==="ArrowUp"){e.preventDefault();tlJump(-1);return;}
+    if(e.key==="ArrowDown"){e.preventDefault();tlJump(1);return;}
+    if(e.shiftKey&&(e.key==="m"||e.key==="M")){e.preventDefault();tlMarker();return;}
     if(e.key==="s"||e.key==="S"){e.preventDefault();tlSplit();return;}
     if(e.key==="Home"){e.preventDefault();tlSeek(0);return;}
     if(e.key==="End"){e.preventDefault();tlSeek(T().duration);return;}
     if(e.key==="ArrowLeft"||e.key==="ArrowRight"){e.preventDefault();tlSeek(tl.t+(e.key==="ArrowRight"?1:-1)*(e.shiftKey?1:1/30));return;}
   }
   if(rt.mode==="timeline"&&(e.metaKey||e.ctrlKey)&&(e.key==="d"||e.key==="D")){e.preventDefault();tlDup();return;}
+  if(rt.mode==="timeline"&&(e.metaKey||e.ctrlKey)&&!e.shiftKey){const k=e.key.toLowerCase();
+    if(k==="c"&&tlSelIds().length){e.preventDefault();tlCopy(false);return;}
+    if(k==="x"&&tlSelIds().length){e.preventDefault();tlCopy(true);return;}
+    if(k==="v"&&tlClipboard){e.preventDefault();tlPaste();return;}
+    if(k==="a"){e.preventDefault();rt.tmulti=new Set(T().clips.filter(c=>!laneSt(c.lane).lock).map(c=>c.id));rt.tsel=[...rt.tmulti][0]||null;renderTimeline();renderPanel();return;}}
   if(e.code==="Space"){e.preventDefault();go();return;}
   if(e.key==="t"||e.key==="T"){rt.testPattern=!rt.testPattern;syncTP();return;}
   if((e.key==="m"||e.key==="M")&&!e.metaKey&&!e.ctrlKey&&!e.altKey){setRoom(!rt.room);return;}
@@ -2566,6 +2781,6 @@ function frame(){
 $("#addTools").innerHTML=menuHTML("surf")+menuHTML("mask");
 loadShow(loadStored());hist.undo=[];hist.redo=[];
 if(!gl)toast("This browser couldn't start WebGL, so the stage can't render.");
-IDB_READY=true;if(DESK)syncScreens(true);restoreFiles().then(left=>{if(left)toast(`${left} file${left===1?"":"s"} couldn't be found in this browser. They're marked “Missing” in the library; re-add them from there.`);pruneFiles();updateStorageNote();});
+syncLiveBtn();IDB_READY=true;if(DESK)syncScreens(true);restoreFiles().then(left=>{if(left)toast(`${left} file${left===1?"":"s"} couldn't be found in this browser. They're marked “Missing” in the library; re-add them from there.`);pruneFiles();updateStorageNote();});
 requestAnimationFrame(frame);
 })();
