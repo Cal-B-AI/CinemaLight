@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>body{margin:0}[hidden]{display:none!important}</style><title>Cuelight Mapper</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>body{margin:0}[hidden]{display:none!important}</style><title>CinemaLight</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,7 +22,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 /* top bar */
 .top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding-block:4px 12px;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:8px;font-family:var(--f-display);font-weight:700;font-size:21px;letter-spacing:.07em;text-transform:uppercase}
-.brand svg{width:26px;height:20px}
+.brand svg{width:34px;height:34px}.brand-name{text-transform:none;letter-spacing:.02em}
 .showname{background:transparent;border:1px solid transparent;border-radius:4px;padding:4px 6px;width:11em;max-width:100%;min-width:0;text-overflow:ellipsis}
 .showname:hover,.showname:focus{border-color:var(--line);outline:none}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
@@ -486,8 +486,8 @@ body.blade .clip{cursor:crosshair}
 
 <header class="top">
   <div class="brand">
-    <svg viewBox="0 0 26 20" aria-hidden="true"><path d="M2 3 L24 1 L22 19 L5 16 Z" fill="none" stroke="#f2a93b" stroke-width="2" stroke-linejoin="round"/><circle cx="2" cy="3" r="2" fill="#f2a93b"/><circle cx="24" cy="1.6" r="1.6" fill="#f2a93b"/><circle cx="22" cy="18.4" r="1.6" fill="#f2a93b"/><circle cx="5" cy="16" r="1.6" fill="#f2a93b"/></svg>
-    Cuelight
+    <svg viewBox="0 0 120 120" aria-hidden="true" class="brand-mark"><defs><linearGradient id="cle0" gradientUnits="userSpaceOnUse" x1="106" y1="18" x2="12" y2="56"><stop offset="0" stop-color="#635BFF"></stop><stop offset="1" stop-color="#A960EE"></stop></linearGradient><linearGradient id="cle1" gradientUnits="userSpaceOnUse" x1="12" y1="56" x2="48" y2="70"><stop offset="0" stop-color="#A960EE"></stop><stop offset="1" stop-color="#FF333D"></stop></linearGradient><linearGradient id="cle2" gradientUnits="userSpaceOnUse" x1="48" y1="70" x2="106" y2="18"><stop offset="0" stop-color="#FF333D"></stop><stop offset="1" stop-color="#635BFF"></stop></linearGradient><linearGradient id="cle3" gradientUnits="userSpaceOnUse" x1="106" y1="18" x2="60" y2="102"><stop offset="0" stop-color="#635BFF"></stop><stop offset="1" stop-color="#90E0FF"></stop></linearGradient><linearGradient id="cle4" gradientUnits="userSpaceOnUse" x1="48" y1="70" x2="60" y2="102"><stop offset="0" stop-color="#FF333D"></stop><stop offset="1" stop-color="#90E0FF"></stop></linearGradient><linearGradient id="cle5" gradientUnits="userSpaceOnUse" x1="48" y1="70" x2="36" y2="92"><stop offset="0" stop-color="#FF333D"></stop><stop offset="1" stop-color="#FFCB57"></stop></linearGradient><linearGradient id="cle6" gradientUnits="userSpaceOnUse" x1="36" y1="92" x2="60" y2="102"><stop offset="0" stop-color="#FFCB57"></stop><stop offset="1" stop-color="#90E0FF"></stop></linearGradient></defs><line x1="106" y1="18" x2="12" y2="56" stroke="url(#cle0)" stroke-width="2.6" stroke-linecap="round" opacity="1"></line><line x1="12" y1="56" x2="48" y2="70" stroke="url(#cle1)" stroke-width="2.6" stroke-linecap="round" opacity="1"></line><line x1="48" y1="70" x2="106" y2="18" stroke="url(#cle2)" stroke-width="2.6" stroke-linecap="round" opacity="1"></line><line x1="106" y1="18" x2="60" y2="102" stroke="url(#cle3)" stroke-width="2.6" stroke-linecap="round" opacity="1"></line><line x1="48" y1="70" x2="60" y2="102" stroke="url(#cle4)" stroke-width="2.6" stroke-linecap="round" opacity="1"></line><line x1="48" y1="70" x2="36" y2="92" stroke="url(#cle5)" stroke-width="2.6" stroke-linecap="round" opacity="1"></line><line x1="36" y1="92" x2="60" y2="102" stroke="url(#cle6)" stroke-width="2.6" stroke-linecap="round" opacity="1"></line><circle cx="22.0" cy="98.0" r="2.4" fill="#FFCB57"></circle><circle cx="11.0" cy="85.0" r="1.9" fill="#FF333D"></circle><circle cx="32.0" cy="110.0" r="2.1" fill="#A960EE"></circle><circle cx="6.0" cy="103.0" r="1.5" fill="#90E0FF"></circle><circle cx="106" cy="18" r="11.5" fill="#635BFF" opacity="0.33999999999999997"></circle><circle cx="106" cy="18" r="6.5" fill="#635BFF" stroke="#0A2540" stroke-width="2"></circle><circle cx="12" cy="56" r="11" fill="#A960EE" opacity="0.33999999999999997"></circle><circle cx="12" cy="56" r="6" fill="#A960EE" stroke="#0A2540" stroke-width="2"></circle><circle cx="48" cy="70" r="10.5" fill="#FF333D" opacity="0.33999999999999997"></circle><circle cx="48" cy="70" r="5.5" fill="#FF333D" stroke="#0A2540" stroke-width="2"></circle><circle cx="60" cy="102" r="11" fill="#90E0FF" opacity="0.33999999999999997"></circle><circle cx="60" cy="102" r="6" fill="#90E0FF" stroke="#0A2540" stroke-width="2"></circle><circle cx="36" cy="92" r="9.5" fill="#FFCB57" opacity="0.33999999999999997"></circle><circle cx="36" cy="92" r="4.5" fill="#FFCB57" stroke="#0A2540" stroke-width="2"></circle></svg>
+    <span class="brand-name">CinemaLight</span>
   </div>
   <div class="projbox"><button class="btn ghost projbtn" data-act="projects" title="Projects (⌘O)">Projects ▾</button><input id="showName" class="showname" type="text" aria-label="Project name"><span class="saved" id="savedState" aria-live="polite">Saved</span></div>
   <div class="seg" role="group" aria-label="Mode">
@@ -2150,7 +2150,7 @@ function AU(){const a=show.audio||(show.audio={deviceId:"",deviceLabel:"",speake
 let NCH=2;const routers=new Set();
 function defaultRoute(){const sp=AU().speakers;if(sp.length>=2)return{[sp[0].id]:{src:"L",lvl:1},[sp[1].id]:{src:"R",lvl:1}};return sp[0]?{[sp[0].id]:{src:"LR",lvl:1}}:{};}
 async function applyAudioDevice(){const ctx=AC;if(!ctx)return;const id=AU().deviceId||"";
-  if(ctx.setSinkId&&(ctx.sinkId||"")!==id){try{await ctx.setSinkId(id);}catch(e){toast("That sound output isn't available right now, so Cuelight is using the system output. Check Speakers.");try{await ctx.setSinkId("");}catch(e2){}}}
+  if(ctx.setSinkId&&(ctx.sinkId||"")!==id){try{await ctx.setSinkId(id);}catch(e){toast("That sound output isn't available right now, so CinemaLight is using the system output. Check Speakers.");try{await ctx.setSinkId("");}catch(e2){}}}
   NCH=Math.max(1,Math.min(32,ctx.destination.maxChannelCount||2));
   for(const n of[ctx.destination,master]){try{n.channelCount=NCH;n.channelCountMode="explicit";n.channelInterpretation="discrete";}catch(e){}}
   rebuildRouters();
@@ -2367,7 +2367,7 @@ function addFiles(files,quiet){
   const made=[];
   for(const f of files){
     const kind=fileKind(f);
-    if(!kind){toast(`“${f.name}” isn't a file type Cuelight recognises. Use video (MP4, MOV, WebM), images (JPG, PNG, GIF, WebP) or audio (MP3, WAV, M4A).`);continue;}
+    if(!kind){toast(`“${f.name}” isn't a file type CinemaLight recognises. Use video (MP4, MOV, WebM), images (JPG, PNG, GIF, WebP) or audio (MP3, WAV, M4A).`);continue;}
     const m={id:uid(),kind,name:f.name.replace(/\.[^.]+$/,""),sound:false};
     show.media.push(m);loadFile(m,f);rt.selMedia=m.id;made.push(m);storeFile(m.id,f);
   }
@@ -2385,7 +2385,7 @@ const IDB={db:null,
   del(id){return this.tx("readwrite",st=>st.delete(id));}
 };
 let storeWarned=false;
-function storeFile(id,f){IDB.put(id,f).then(ok=>{if(!ok&&!storeWarned){storeWarned=true;toast("This browser won't let Cuelight keep files, so uploads will need re-adding after a reload.");}updateStorageNote();});}
+function storeFile(id,f){IDB.put(id,f).then(ok=>{if(!ok&&!storeWarned){storeWarned=true;toast("This browser won't let CinemaLight keep files, so uploads will need re-adding after a reload.");}updateStorageNote();});}
 async function restoreFiles(){
   const need=show.media.filter(m=>(m.kind==="video"||m.kind==="image"||m.kind==="audio")&&!mediaRT[m.id]);
   for(const m of need){const b=await IDB.get(m.id);if(b instanceof Blob)loadFile(m,b);}
@@ -2415,7 +2415,7 @@ function mediaErr(m,f,code){
     return`${name} couldn't be opened as an image. Try saving it as JPG or PNG.`;
   }
   if(["mov","mkv","avi","wmv","mxf","hevc","mpg","mpeg"].includes(e))return`${name} is a .${e} file this browser can't play (often ProRes or HEVC). Convert it to MP4 (H.264) or WebM and upload again.`;
-  return`${name} couldn't be played by this browser${code?` (error ${code})`:""}. MP4 (H.264) or WebM works everywhere. If you're using Cuelight inside Claude, the standalone Cuelight file also avoids browser restrictions.`;
+  return`${name} couldn't be played by this browser${code?` (error ${code})`:""}. MP4 (H.264) or WebM works everywhere. If you're using CinemaLight inside Claude, the standalone CinemaLight file also avoids browser restrictions.`;
 }
 function mediaFail(m,msg){const r=mediaRT[m.id];if(!r||r.err)return;r.err=msg;renderBin();toast(msg);}
 function renderPanelSoon(){if(!/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName||""))renderPanel();}
@@ -2567,7 +2567,7 @@ function mapPanel(){
     <div class="field"><label for="res">Resolution</label><select id="res">${(RESOLUTIONS.some(r=>r.join("x")===o.res.join("x"))?RESOLUTIONS:[o.res,...RESOLUTIONS]).map(([w,hh])=>opt(w+"x"+hh,`${w} × ${hh}`,o.res.join("x"))).join("")}</select></div>
     ${DESK?screenField(o):""}
     <div class="btns"><button class="btn" data-act="output">${DESK&&displayFor(o)?"Show on "+esc(displayFor(o).label):"Open output window"}</button><button class="btn ghost danger" data-act="delete" data-kind="output" data-id="${o.id}">Delete projector</button></div>
-    <p class="note">${DESK?"Each projector shows up as a screen once it's plugged in and set to Extended in your display settings. Pick it above and Cuelight fills it automatically, every time you open this show.":"Match the projector's native resolution."} Double-click any name to rename it, or use the pencil and trash icons that appear when you point at a row.</p></div>
+    <p class="note">${DESK?"Each projector shows up as a screen once it's plugged in and set to Extended in your display settings. Pick it above and CinemaLight fills it automatically, every time you open this show.":"Match the projector's native resolution."} Double-click any name to rename it, or use the pencil and trash icons that appear when you point at a row.</p></div>
   <div class="sec"><div class="sec-head"><h3>Surfaces on ${esc(o.name)}</h3><div class="acts">
     ${menuHTML("surf")}</div></div>
   <ul class="list">${surfs.map(s=>{const r=rt.surf[s.id];const top=r?.players[r.players.length-1];
@@ -3410,8 +3410,8 @@ function openOutput(id,opts={}){
   if(outWins[id]&&!outWins[id].closed){outWins[id].focus();return;}
   let w=null;try{w=window.open("","cuelight_out_"+id,"popup,width=960,height=540");}catch(e){}
   const cv=oc[id]?.cv;
-  if(!w||!cv?.captureStream){toast("This view can't open a second window. Use Fullscreen output, or run the standalone Cuelight file for separate projector windows.");return;}
-  const d=w.document;d.title="Cuelight — "+o.name;
+  if(!w||!cv?.captureStream){toast("This view can't open a second window. Use Fullscreen output, or run the standalone CinemaLight file for separate projector windows.");return;}
+  const d=w.document;d.title="CinemaLight — "+o.name;
   d.body.style.cssText="margin:0;background:#000;overflow:hidden;cursor:none";d.body.innerHTML="";
   const v=d.createElement("video");v.autoplay=true;v.muted=true;v.playsInline=true;v.style.cssText="position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;background:#000";
   v.srcObject=cv.captureStream(60);d.body.appendChild(v);v.play().catch(()=>{});
@@ -3457,7 +3457,7 @@ async function openScreenPicker(){let m=$("#scrModal");
 function closeScreenPicker(){const m=$("#scrModal");if(m)m.hidden=true;clearInterval(scrPoll);}
 async function fixMirroring(){if(scrFixing)return;scrFixing=true;renderScreenPicker(true);
   const r=await DESK.extend().catch(()=>({ok:false}));
-  setTimeout(()=>{scrFixing=false;renderScreenPicker();if(!r.ok)toast("Cuelight couldn't change the screen setup by itself. Use Open display settings and choose Extend.");},2500);}
+  setTimeout(()=>{scrFixing=false;renderScreenPicker();if(!r.ok)toast("CinemaLight couldn't change the screen setup by itself. Use Open display settings and choose Extend.");},2500);}
 async function renderScreenPicker(quick){const m=$("#scrModal");if(!m||m.hidden)return;
   if(!quick){await refreshDisplays();try{scrState=await DESK.screenState();}catch(e){scrState={canFix:false,mirrored:null};}}
   const free=displays.filter(d=>!d.control&&!usedBy(d)),taken=displays.filter(d=>!d.control&&usedBy(d)),me=displays.find(d=>d.control);
@@ -3467,12 +3467,12 @@ async function renderScreenPicker(quick){const m=$("#scrModal");if(!m||m.hidden)
   let h="";
   if(free.length){
     h+=`<div class="scr-found"><span class="scr-dot ok"></span><b>${scrHadNone?"Found it!":free.length===1?"Projector found":"Projectors found"}</b></div>
-      <p class="note" style="margin-top:0">Pick the one to add. Cuelight names it, matches its resolution and fills it with a test grid, ready for you to fit onto your set.</p>
+      <p class="note" style="margin-top:0">Pick the one to add. CinemaLight names it, matches its resolution and fills it with a test grid, ready for you to fit onto your set.</p>
       <div class="scr-list">${free.map(card).join("")}</div>`;
   }else{
     scrHadNone=true;
     if(scrState.mirrored){
-      h+=`<div class="scr-callout"><b>Your projector is showing a copy of this screen.</b><p class="note">It needs to be its own screen so Cuelight can send it a different picture.</p>${fixBtn("Make it a separate screen",true)}</div>`;
+      h+=`<div class="scr-callout"><b>Your projector is showing a copy of this screen.</b><p class="note">It needs to be its own screen so CinemaLight can send it a different picture.</p>${fixBtn("Make it a separate screen",true)}</div>`;
     }else{
       h+=`<div class="scr-found"><span class="scr-dot"></span><b>Looking for your projector…</b></div>
       <ol class="scr-steps">
@@ -3485,7 +3485,7 @@ async function renderScreenPicker(quick){const m=$("#scrModal");if(!m||m.hidden)
         <li>Wake the projector: some go to standby and stop sending a signal.</li>
         <li>Try another cable, adapter or port. Cheap adapters are the most common problem.</li>
         <li>Turn the projector on <i>before</i> plugging it in, then unplug and plug it back in.</li>
-        ${me&&!me.internal&&displays.length===1?`<li>Cuelight is running on the only screen it can see. ${mac?"Open your MacBook's lid":"Connect your laptop's screen"} so the projector is a second screen.</li>`:""}
+        ${me&&!me.internal&&displays.length===1?`<li>CinemaLight is running on the only screen it can see. ${mac?"Open your MacBook's lid":"Connect your laptop's screen"} so the projector is a second screen.</li>`:""}
       </ul></details>`;
     }
   }
@@ -3624,7 +3624,7 @@ function exportProject(id){
 }
 function importText(txt,fallbackName){
   let sh;try{sh=JSON.parse(txt);}catch(e){sh=null;}
-  if(!sh||!Array.isArray(sh.surfaces)||!Array.isArray(sh.cues)){toast("That isn't a Cuelight project. Choose a .cuelight file or paste the whole show text, starting with {.");return false;}
+  if(!sh||!Array.isArray(sh.surfaces)||!Array.isArray(sh.cues)){toast("That isn't a CinemaLight project. Choose a .cuelight file or paste the whole show text, starting with {.");return false;}
   sh.name=uniqueName(sh.name||fallbackName||"Imported show");createProject(sh,`Imported “${sh.name}”. Re-add its videos and images from the media library if they show as missing.`);return true;
 }
 function loadShow(s){

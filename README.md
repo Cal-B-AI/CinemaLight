@@ -1,4 +1,4 @@
-# Cuelight
+# CinemaLight
 
 Projection mapping with QLab-style cueing, a timeline editor and a Room view for every projector at once.
 Runs as a desktop app on macOS and Windows and updates itself from this repo's Releases.
@@ -7,12 +7,12 @@ Runs as a desktop app on macOS and Windows and updates itself from this repo's R
 
 Download the latest installer from **[Releases](https://github.com/Cal-B-AI/CinemaLight/releases/latest)**:
 
-- **Mac:** `Cuelight-x.y.z-universal.dmg` (Intel and Apple Silicon). Open it and drag Cuelight into Applications.
-- **Windows:** `Cuelight-Setup-x.y.z.exe`.
+- **Mac:** `CinemaLight-x.y.z-universal.dmg` (Intel and Apple Silicon). Open it and drag CinemaLight into Applications.
+- **Windows:** `CinemaLight-Setup-x.y.z.exe`.
 
 The builds aren't code-signed yet, so the first launch shows a warning:
 
-- **Mac:** if macOS says it can't check the app, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. If it says the app is "damaged", run `xattr -cr /Applications/Cuelight.app` in Terminal once, then open it.
+- **Mac:** if macOS says it can't check the app, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. If it says the app is "damaged", run `xattr -cr /Applications/CinemaLight.app` in Terminal once, then open it.
 - **Windows:** on the blue SmartScreen box, click **More info → Run anyway**.
 
 Projects and imported media live inside the app's own storage on that computer. Use **Projects → ⤓ Export** to back a show up or move it to another machine.
@@ -21,7 +21,7 @@ Projects and imported media live inside the app's own storage on that computer. 
 
 - **Windows** checks GitHub on launch and every few hours, downloads new versions in the background and asks to restart when one is ready (or installs on quit).
 - **Mac** tells you a new version is out and opens the download page. Once the app is signed with an Apple Developer ID (see below), Macs update themselves the same way Windows does.
-- Anyone can check by hand: **Cuelight → Check for Updates…** (Mac) or **Help → Check for Updates…** (Windows).
+- Anyone can check by hand: **CinemaLight → Check for Updates…** (Mac) or **Help → Check for Updates…** (Windows).
 
 ## Releasing a new version
 

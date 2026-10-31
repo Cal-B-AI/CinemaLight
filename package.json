@@ -1,8 +1,8 @@
 {
   "name": "cuelight",
-  "productName": "Cuelight",
+  "productName": "CinemaLight",
   "version": "1.2.0",
-  "description": "Projection mapping with QLab-style cueing and a timeline editor.",
+  "description": "CinemaLight: projection mapping with QLab-style cueing and a timeline editor.",
   "author": "Cinema Story Productions",
   "license": "UNLICENSED",
   "private": true,
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.cinemastoryproductions.cuelight",
-    "productName": "Cuelight",
+    "productName": "CinemaLight",
     "files": [
       "main.js",
       "preload.js",
@@ -72,7 +72,7 @@
       "x64ArchFiles": "Contents/Resources/cuelight-displays"
     },
     "dmg": {
-      "title": "Cuelight ${version}"
+      "title": "CinemaLight ${version}"
     },
     "win": {
       "target": [
@@ -88,7 +88,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Cuelight"
+      "shortcutName": "CinemaLight"
     },
     "linux": {
       "target": [

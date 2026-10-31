@@ -1,4 +1,4 @@
-// Cuelight desktop shell: one window running the app, projector output pop-outs, and updates from GitHub Releases.
+// CinemaLight desktop shell: one window running the app, projector output pop-outs, and updates from GitHub Releases.
 const electron = require("electron");
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = electron;
 // The screen module can only be touched once the app is ready, so it is read lazily.
@@ -14,13 +14,16 @@ const MAC_CAN_SELF_UPDATE = !!(pkg.cuelight && pkg.cuelight.macSigned);
 
 let win = null;
 
+// Projects and media saved before the rename live in the old "Cuelight" folder; keep using it so nothing goes missing.
+app.setPath("userData", path.join(app.getPath("appData"), "Cuelight"));
+
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 
 function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 1000, minHeight: 680,
-    backgroundColor: "#0e1116", title: "Cuelight", show: false,
+    backgroundColor: "#0e1116", title: "CinemaLight", show: false,
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false, preload: path.join(__dirname, "preload.js") }
   });
@@ -69,7 +72,7 @@ function createWindow() {
     if (!url || url === "about:blank") {
       const oid = (frameName || "").startsWith("cuelight_out_") ? frameName.slice(13) : null;
       const d = oid && assigned.has(oid) ? scr().getAllDisplays().find(x => x.id === assigned.get(oid)) : null;
-      const base = { backgroundColor: "#000000", autoHideMenuBar: true, title: "Cuelight Output", icon: path.join(__dirname, "build", "icon.png"),
+      const base = { backgroundColor: "#000000", autoHideMenuBar: true, title: "CinemaLight Output", icon: path.join(__dirname, "build", "icon.png"),
         webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false } };
       if (d) {
         pendingPlace.set(frameName, d.id);
@@ -87,7 +90,7 @@ const assigned = new Map();      // projector (output) id -> display id
 const pendingPlace = new Map();  // window frame name -> display id
 function displayInfo() {
   const primary = scr().getPrimaryDisplay().id;
-  // The screen Cuelight's own window is on is where you run the show, so it's never offered as a projector.
+  // The screen CinemaLight's own window is on is where you run the show, so it's never offered as a projector.
   const control = win && !win.isDestroyed() ? scr().getDisplayMatching(win.getBounds()).id : primary;
   return scr().getAllDisplays().map((d, i) => ({
     id: d.id, label: d.label || (d.internal ? "Built-in display" : `Display ${i + 1}`),
@@ -185,12 +188,12 @@ function setupUpdates() {
     dialog.showMessageBox(win, {
       type: "info", buttons: ["Download", "Later"], defaultId: 0, cancelId: 1,
       title: "Update available",
-      message: `Cuelight ${info.version} is available`,
+      message: `CinemaLight ${info.version} is available`,
       detail: `You have ${app.getVersion()}. Download the new version, then drag it into Applications to replace this one. Your projects stay as they are.`
     }).then(r => { if (r.response === 0) shell.openExternal(RELEASES_URL); });
   });
   updater.on("update-not-available", () => {
-    if (manualCheck) dialog.showMessageBox(win, { type: "info", message: "You're up to date", detail: `Cuelight ${app.getVersion()} is the newest version.` });
+    if (manualCheck) dialog.showMessageBox(win, { type: "info", message: "You're up to date", detail: `CinemaLight ${app.getVersion()} is the newest version.` });
     manualCheck = false;
   });
   updater.on("update-downloaded", info => {
@@ -198,7 +201,7 @@ function setupUpdates() {
     dialog.showMessageBox(win, {
       type: "info", buttons: ["Restart now", "After I quit"], defaultId: 0, cancelId: 1,
       title: "Update ready",
-      message: `Cuelight ${info.version} is ready to install`,
+      message: `CinemaLight ${info.version} is ready to install`,
       detail: "Restart now to update, or it will install the next time you quit. Don't restart in the middle of a show."
     }).then(r => { if (r.response === 0) updater.quitAndInstall(); });
   });
@@ -220,7 +223,7 @@ function checkNow() {
 function buildMenu() {
   const mac = process.platform === "darwin";
   const tmpl = [
-    ...(mac ? [{ label: "Cuelight", submenu: [
+    ...(mac ? [{ label: "CinemaLight", submenu: [
       { role: "about" }, { label: "Check for Updates…", click: checkNow }, { type: "separator" },
       { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" }
     ] }] : [{ label: "File", submenu: [{ role: "quit" }] }]),
