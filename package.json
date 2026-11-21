@@ -69,7 +69,10 @@
           "to": "cuelight-displays"
         }
       ],
-      "x64ArchFiles": "Contents/Resources/cuelight-displays"
+      "x64ArchFiles": "Contents/Resources/cuelight-displays",
+      "extendInfo": {
+        "NSCameraUsageDescription": "CinemaLight shows live camera feeds on your projection surfaces."
+      }
     },
     "dmg": {
       "title": "CinemaLight ${version}"

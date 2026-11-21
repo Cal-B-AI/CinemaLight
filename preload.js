@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("cuelightDesktop", {
   screenState: () => ipcRenderer.invoke("cl:screen-state"),
   extend: () => ipcRenderer.invoke("cl:extend"),
   openDisplaySettings: () => ipcRenderer.invoke("cl:open-display-settings"),
+  cameraAccess: () => ipcRenderer.invoke("cl:camera-access"),
   identify: displayId => ipcRenderer.invoke("cl:identify", Number(displayId)),
   onDisplaysChanged: cb => { const h = () => cb(); ipcRenderer.on("cl:displays-changed", h); return () => ipcRenderer.removeListener("cl:displays-changed", h); }
 });

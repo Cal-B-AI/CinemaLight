@@ -1,6 +1,6 @@
 // CinemaLight desktop shell: one window running the app, projector output pop-outs, and updates from GitHub Releases.
 const electron = require("electron");
-const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = electron;
+const { app, BrowserWindow, Menu, shell, dialog, ipcMain, systemPreferences } = electron;
 // The screen module can only be touched once the app is ready, so it is read lazily.
 const scr = () => electron.screen;
 const path = require("path");
@@ -99,6 +99,8 @@ function displayInfo() {
   }));
 }
 ipcMain.handle("cl:displays", () => displayInfo());
+// macOS asks the person once before an app can use the camera.
+ipcMain.handle("cl:camera-access", async () => { if (process.platform !== "darwin") return true; try { return await systemPreferences.askForMediaAccess("camera"); } catch (e) { return false; } });
 ipcMain.handle("cl:assign", (_e, outputId, displayId) => { if (displayId == null) assigned.delete(outputId); else assigned.set(outputId, displayId); return true; });
 // Flash a big label on a screen so you can tell which projector it is.
 ipcMain.handle("cl:identify", (_e, displayId) => {

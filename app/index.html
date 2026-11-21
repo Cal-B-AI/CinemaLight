@@ -482,6 +482,9 @@ body.tl-mode .side-bin .bin-head{flex-wrap:wrap}
 .clip.off{filter:grayscale(1);opacity:.45}
 .ln-btn.wide{width:20px;font:600 13px var(--f-body);line-height:1}
 body.blade .clip{cursor:crosshair}
+.cammodal{width:min(560px,100%);display:flex;flex-direction:column;gap:12px}
+.cam-prev{position:relative;border-radius:6px;overflow:hidden;background:#000;aspect-ratio:16/9;margin:4px 0 8px}.cam-prev video{width:100%;height:100%;object-fit:contain;display:block}
+.cam-st{position:absolute;left:8px;bottom:6px;font:600 11px var(--f-body);background:rgba(0,0,0,.65);padding:2px 6px;border-radius:3px;color:#ffb4b6}
 </style>
 
 <header class="top">
@@ -551,6 +554,7 @@ body.blade .clip{cursor:crosshair}
           <option value="">+ Effect…</option>
         </select>
         <label class="btn" for="fileIn">+ Upload video, image or audio</label>
+        <button class="btn" data-act="cam-add" title="Use a live camera or capture card as a source">+ Camera</button>
         <input id="fileIn" type="file" multiple accept="video/*,image/*,audio/*,.mov,.m4v,.mkv,.avi,.heic,.mp3,.wav,.m4a,.aif,.aiff" class="sr">
       </div>
       <div class="libbar" id="libBar"></div>
@@ -831,7 +835,7 @@ const group=id=>show.groups.find(g=>g.id===id);
 const curOut=()=>output(rt.out)||show.outputs[0];
 const curRes=()=>curOut()?.res||[1920,1080];
 const onOut=list=>list.filter(x=>x.outputId===rt.out);
-const isVisual=m=>m&&(m.kind==="gen"||m.kind==="video"||m.kind==="image");
+const isVisual=m=>m&&(m.kind==="gen"||m.kind==="video"||m.kind==="image"||m.kind==="camera");
 const isAudio=m=>m&&(m.kind==="audio"||m.kind==="synth");
 const missing=m=>(m.kind==="video"||m.kind==="image"||m.kind==="audio")&&!mediaRT[m.id];
 
@@ -1005,6 +1009,27 @@ function vidTex(p){
   if(v.readyState>=2&&v._lf!==rt.frame){try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,v);v._up=true;}catch(e){}v._lf=rt.frame;}
   return v._up?v._tex:null;
 }
+/* ---------- live cameras ----------
+   A camera is a media item like a video, but its picture is the live feed. One stream per camera is shared by
+   every surface and projector showing it, and it is switched off when nothing has shown it for a while. */
+const camRT={};
+function camStart(m){let c=camRT[m.id];if(c&&(c.el||c.starting||c.err))return c;c=camRT[m.id]=c||{};c.starting=true;c.err=null;
+  (async()=>{try{if(DESK?.cameraAccess)await DESK.cameraAccess();
+      const st=await navigator.mediaDevices.getUserMedia({audio:false,video:{deviceId:m.deviceId?{exact:m.deviceId}:undefined,width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60}}});
+      const v=document.createElement("video");v.muted=true;v.playsInline=true;v.autoplay=true;v.setAttribute("muted","");v.srcObject=st;vidPool.appendChild(v);v.play().catch(()=>{});
+      st.getVideoTracks()[0]?.addEventListener("ended",()=>{camStop(m.id);const x=camRT[m.id]||(camRT[m.id]={});x.err="disconnected";toast(`“${m.name}” stopped sending a picture. Check that it's still plugged in.`);renderBin();});
+      c.stream=st;c.el=v;c.used=performance.now();renderBin();if(rt.selMedia===m.id)renderMediaInsp();
+    }catch(e){c.err=e&&e.name==="NotAllowedError"?"denied":e&&(e.name==="NotFoundError"||e.name==="OverconstrainedError")?"missing":"failed";
+      toast(c.err==="denied"?`CinemaLight isn't allowed to use the camera. On a Mac: System Settings → Privacy & Security → Camera → turn on CinemaLight.`:c.err==="missing"?`“${m.name}” isn't connected. Plug it in, then pick it again in the media library.`:`“${m.name}” couldn't start. Close other apps that might be using it and try again.`);renderBin();}
+    c.starting=false;})();return c;}
+function camStop(id){const c=camRT[id];if(!c)return;try{c.stream?.getTracks().forEach(t=>t.stop());}catch(e){}if(c.el){try{c.el.srcObject=null;c.el.remove();}catch(e){}if(c.el._tex&&gl)gl.deleteTexture(c.el._tex);}delete camRT[id];}
+function camTex(m){const c=camStart(m);c.used=performance.now();const v=c.el;if(!v)return null;
+  if(!v._tex){v._tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,v._tex);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);}
+  gl.bindTexture(gl.TEXTURE_2D,v._tex);
+  if(v.readyState>=2&&v._lf!==rt.frame){try{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,v);v._up=true;}catch(e){}v._lf=rt.frame;}
+  return v._up?v._tex:null;}
 function surfVideo(sid){const r=rt.surf[sid];if(!r)return null;const p=[...r.players].reverse().find(x=>media(x.mediaId)?.kind==="video");return p?ensureVid(p):null;}
 function drawLayer(m,color,op,t,player){
   if(m.kind==="gen"){
@@ -1012,7 +1037,7 @@ function drawLayer(m,color,op,t,player){
     gl.uniform3fv(U.uC1,hex2rgb(color||m.c1));gl.uniform3fv(U.uC2,hex2rgb(m.c2||"#000000"));
     gl.uniform1f(U.uT,t*(m.speed??1));
   }else{
-    const tex=m.kind==="video"?vidTex(player):texFor(m);if(!tex)return;
+    const tex=m.kind==="video"?vidTex(player):m.kind==="camera"?camTex(m):texFor(m);if(!tex)return;
     setFrameUniforms(m,player);
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(U.uTex,0);gl.uniform1i(U.uMode,0);
   }
@@ -1027,6 +1052,7 @@ function normFrame(f){f=f||{};return{fit:FIT[f.fit]?f.fit:"fill",zoom:+f.zoom||1
 function frameOf(sid,mid){const f=surf(sid)?.frames?.[mid]||{};return{fit:FIT[f.fit]?f.fit:"fill",zoom:+f.zoom||1,x:+f.x||0,y:+f.y||0,rot:((+f.rot||0)%4+4)%4,fh:!!f.fh,fv:!!f.fv};}
 function frameEdit(s,mid){s.frames=s.frames||{};return s.frames[mid]=s.frames[mid]||{};}
 function mediaAspect(m,player){
+  if(m.kind==="camera"){const v=camRT[m.id]?.el;return v&&v.videoWidth?v.videoWidth/v.videoHeight:16/9;}
   if(m.kind==="video"){const v=player?.vid;if(v&&v.videoWidth)return v.videoWidth/v.videoHeight;const r=mediaRT[m.id];return r?.w?r.w/r.h:16/9;}
   const r=mediaRT[m.id];return r?.w?r.w/r.h:16/9;
 }
@@ -1151,6 +1177,7 @@ function manageVideos(){
     if(rt.frame%10===0){const want=on&&p.op*r.level>0.002&&!v._done;
       if(want&&v.paused)v.play().catch(()=>{});else if(!want&&!v.paused)v.pause();}}}
   if(rt.frame%30)return;
+  const now=performance.now();for(const id in camRT){const c=camRT[id];if(c.el&&now-(c.used||0)>20000&&rt.selMedia!==id)camStop(id);}
   for(const v of vidSet)if(!live.has(v)){try{v.pause();v.removeAttribute("src");v.load();v.remove();}catch(e){}if(v._tex&&gl)gl.deleteTexture(v._tex);vidSet.delete(v);}
 }
 
@@ -2294,6 +2321,7 @@ function updateRunning(n){
 
 /* ---------- media bin ---------- */
 function swatchCSS(m){
+  if(m.kind==="camera")return"background:radial-gradient(circle at 50% 45%,#2a3140 0 22%,#151920 23%)";
   if(m.kind==="image"&&mediaRT[m.id]?.thumb)return`background-image:url(${mediaRT[m.id].thumb})`;
   if(m.kind==="video"&&mediaRT[m.id]?.thumb)return`background-image:url(${mediaRT[m.id].thumb})`;
   if(m.kind!=="gen")return m.kind==="video"?"background:repeating-linear-gradient(90deg,#1c212a 0 10px,#151920 10px 20px)":"background:linear-gradient(180deg,#151920,#1c212a)";
@@ -2311,8 +2339,8 @@ function swatchCSS(m){
   }
   return"background:#000";
 }
-function kindLabel(m){return m.kind==="gen"?(GENS[m.gen]?.label||"Visual"):m.kind==="synth"?"Synth audio":m.kind[0].toUpperCase()+m.kind.slice(1)}
-const LIB_FILTERS={all:"All",video:"Videos",image:"Images",gen:"Effects",audio:"Audio"};
+function kindLabel(m){return m.kind==="camera"?"Live camera":m.kind==="gen"?(GENS[m.gen]?.label||"Visual"):m.kind==="synth"?"Synth audio":m.kind[0].toUpperCase()+m.kind.slice(1)}
+const LIB_FILTERS={all:"All",video:"Videos",image:"Images",camera:"Cameras",gen:"Effects",audio:"Audio"};
 const libKind=m=>m.kind==="synth"?"audio":m.kind;
 function usedIn(m){return show.cues.filter(c=>(c.assign||[]).some(r=>r.mediaId===m.id)||c.mediaId===m.id).length;}
 function renderBin(){
@@ -2323,7 +2351,7 @@ function renderBin(){
   const list=show.media.filter(m=>(f==="all"||libKind(m)===f)&&(!q||m.name.toLowerCase().includes(q)));
   if(!list.length){$("#bin").innerHTML=`<p class="note" style="grid-column:1/-1">${show.media.length?"Nothing matches. Try another filter or search.":"Your library is empty. Upload videos and images, or add an effect."}</p>`;renderMediaInsp();return;}
   $("#bin").innerHTML=list.map(m=>{const u=usedIn(m);return`<button class="tile${rt.selMedia===m.id?" on":""}${missing(m)||mediaRT[m.id]?.err?" missing":""}" data-act="media" data-id="${m.id}" title="${esc(m.name)}${isVisual(m)?" — drag onto a surface":""}" ${(isVisual(m)||m.kind==="audio")&&!missing(m)?'draggable="true"':""}>
-    <span class="sw" style="${swatchCSS(m)}"><span>${esc(m.kind==="gen"?"":m.kind==="synth"?"♪ SYNTH":m.kind==="audio"?"♪ AUDIO":m.kind==="video"?"▶ "+(fmtDur(mediaRT[m.id]?.dur)||"VIDEO"):"IMAGE")}</span></span>
+    <span class="sw" style="${swatchCSS(m)}"><span>${esc(m.kind==="camera"?(camRT[m.id]?.err?"⚠ CAMERA":"● LIVE"):m.kind==="gen"?"":m.kind==="synth"?"♪ SYNTH":m.kind==="audio"?"♪ AUDIO":m.kind==="video"?"▶ "+(fmtDur(mediaRT[m.id]?.dur)||"VIDEO"):"IMAGE")}</span></span>
     <span class="nm" data-rn="media:${m.id}">${missing(m)?"Missing: ":mediaRT[m.id]?.err?"⚠ ":""}${esc(m.name)}</span>${u?`<span class="used" title="Used in ${u} cue${u===1?"":"s"}">${u} cue${u===1?"":"s"}</span>`:""}</button>`}).join("");
   renderMediaInsp();
 }
@@ -2338,6 +2366,10 @@ function renderMediaInsp(){
     h+=`<div class="field"><span class="lab">Colors</span><div class="inline"><input id="md-c1" type="color" data-md="c1" value="${m.c1}" aria-label="Color 1">${["solid","pulse","strobe","grid"].includes(m.gen)?"":`<input id="md-c2" type="color" data-md="c2" value="${m.c2}" aria-label="Color 2">`}</div></div>
       <div class="field"><label for="md-speed">Speed</label><div class="inline"><input id="md-speed" type="range" min="0" max="4" step="0.05" data-md="speed" value="${m.speed??1}"><output>${(+(m.speed??1)).toFixed(2)}×</output></div></div>`;
   }
+  if(m.kind==="camera"){const c=camRT[m.id];
+    h+=`<div class="field"><span class="lab">Camera</span><button class="btn" data-act="cam-pick" data-id="${m.id}">${esc(m.label||"Choose camera")} ▾</button></div>
+      <div class="cam-prev"><video id="camPrev" muted playsinline autoplay></video><span class="cam-st">${c?.err==="denied"?"Camera access is off for CinemaLight":c?.err==="missing"?"Not connected":c?.err?"Couldn't start":c?.el?`● Live${c.el.videoWidth?` · ${c.el.videoWidth}×${c.el.videoHeight}`:""}`:"Starting…"}</span></div>
+      <p class="note">Put it on any surface like a video: drag it onto the stage, add it to a cue in the cue builder, or drop it on the timeline. Every surface showing it gets the same live picture. Capture cards (Blackmagic, Elgato, HDMI-to-USB) show up here like cameras.</p>`;}
   if(m.kind==="video"&&mediaRT[m.id]?.dur)h+=`<div class="field"><span class="lab">Clip</span><span class="mono" style="font-size:12.5px">${fmtDur(mediaRT[m.id].dur)} · ${mediaRT[m.id].w}×${mediaRT[m.id].h}</span></div>`;
   if(m.kind==="video")h+=`<div class="field"><span class="lab">Sound in cues</span><label class="inline"><input id="md-sound" type="checkbox" data-md="sound" ${m.sound?"checked":""}> Play its sound when a cue shows it</label></div><p class="note" style="margin-top:-4px">On the timeline, each clip has its own sound switch and fades.</p>`;
   if(mediaRT[m.id]?.err)h+=`<p class="note media-err">${esc(mediaRT[m.id].err)}</p>`;
@@ -2362,6 +2394,7 @@ function renderMediaInsp(){
   }
   if(m.kind==="audio"||m.kind==="synth")h+=`<p class="note">Sound plays from Audio cues. Add one in Cues mode.</p>`;
   box.innerHTML=h+`<input id="relinkIn" type="file" class="sr" accept="${m.kind}/*">`;
+  if(m.kind==="camera"){const c=camStart(m),pv=$("#camPrev");if(pv&&c.stream){pv.srcObject=c.stream;pv.play().catch(()=>{});}}
 }
 function addFiles(files,quiet){
   const made=[];
@@ -2506,6 +2539,24 @@ function routeHTML(obj,scope){const r=routeOf(obj),A=AU();
       <select data-route="${scope}" data-spk="${sp.id}" data-f="src" aria-label="Which side feeds ${esc(sp.name)}" ${on?"":"disabled"}>${opt("LR","Left + right",x?.src||"LR")}${opt("L","Left only",x?.src||"LR")}${opt("R","Right only",x?.src||"LR")}</select>
       <div class="inline"><input type="range" min="0" max="1" step="0.01" data-route="${scope}" data-spk="${sp.id}" data-f="lvl" value="${x?.lvl??1}" ${on?"":"disabled"} aria-label="${esc(sp.name)} level"><output>${Math.round((x?.lvl??1)*100)}%</output></div></div>`}).join("")}</div>`;}
 function routeTarget(scope){if(scope==="cue")return show.cues[rt.playhead];if(scope==="clip")return tlClip(rt.tsel);return null;}
+/* camera picker: lists cameras and capture cards; adds one to the library, or switches an existing camera item */
+let camPickFor=null;
+async function openCamPicker(forId){camPickFor=forId||null;let m=$("#camModal");if(!m){m=document.createElement("div");m.className="modal-bg";m.id="camModal";
+    m.innerHTML=`<div class="modal cammodal" role="dialog" aria-modal="true" aria-labelledby="camTitle"><div class="wz-head"><h2 id="camTitle">Add a live camera</h2><button class="btn ghost" data-act="cam-close" aria-label="Close">✕</button></div><div id="camBody"><p class="note">Looking for cameras…</p></div></div>`;document.body.appendChild(m);}
+  m.hidden=false;$("#camTitle").textContent=forId?"Switch camera":"Add a live camera";let list=[],err=null;
+  try{if(DESK?.cameraAccess)await DESK.cameraAccess();const st=await navigator.mediaDevices.getUserMedia({video:true,audio:false});st.getTracks().forEach(t=>t.stop());}catch(e){err=e&&e.name;}
+  try{list=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput");}catch(e){}
+  const inUse=new Set(show.media.filter(x=>x.kind==="camera").map(x=>x.deviceId));
+  $("#camBody").innerHTML=(err==="NotAllowedError"?`<div class="scr-callout"><b>CinemaLight isn't allowed to use cameras.</b><p class="note">${navigator.platform.startsWith("Mac")?"Open System Settings → Privacy & Security → Camera and turn on CinemaLight, then try again.":"Allow camera access for CinemaLight in your system's privacy settings, then try again."}</p></div>`:"")
+    +(list.length?`<p class="note" style="margin-top:0">Pick the camera or capture card to use. Its live picture can then go on any surface, in any cue or on the timeline.</p><div class="scr-list">${list.map((d,i)=>`<div class="scr-card"><button class="scr-main" data-act="cam-choose" data-id="${esc(d.deviceId)}" data-label="${esc(d.label||"Camera "+(i+1))}"><b>${esc(d.label||"Camera "+(i+1))}</b><span>${inUse.has(d.deviceId)?"already in your library":""}</span><em>Use this one →</em></button></div>`).join("")}</div>`
+      :err==="NotAllowedError"?"":`<div class="scr-empty"><b>No camera found.</b><p class="note">Plug in a USB camera, or a capture card (Blackmagic, Elgato, HDMI-to-USB) with a camera connected, then click Look again.</p></div>`)
+    +`<div class="btns" style="justify-content:space-between"><button class="btn ghost" data-act="cam-rescan">Look again</button><button class="btn" data-act="cam-close">Cancel</button></div>`;}
+function closeCamPicker(){const m=$("#camModal");if(m)m.hidden=true;}
+function chooseCam(deviceId,label){closeCamPicker();
+  if(camPickFor){const m=media(camPickFor);if(m){camStop(m.id);if(m.name===m.label)m.name=label;m.deviceId=deviceId;m.label=label;save();renderBin();toast(`Now using “${label}”.`);}return;}
+  let m=show.media.find(x=>x.kind==="camera"&&x.deviceId===deviceId);
+  if(!m){m={id:uid(),kind:"camera",name:label,deviceId,label};show.media.push(m);save();}
+  rt.selMedia=m.id;renderBin();toast(`“${label}” is in your media library. Drag it onto a surface, or pick it in the cue builder or timeline like any video.`);}
 function closeHelp(){const m=$("#helpModal");if(m)m.hidden=true;}
 function renderPanel(){placeBin();syncLockBtn();
   if(rt.mode==="cues"){syncPreview();ensureCueEdit();}
@@ -2926,6 +2977,11 @@ document.addEventListener("click",e=>{
     case"guides":rt.guides=!rt.guides;try{localStorage.setItem("cuelight-guides",rt.guides?"1":"0");}catch(e){}syncLockBtn();toast(rt.guides?"While mapping, the projectors show your crosshair and the points you're placing.":"Projector guides off: the projectors show only the content while you map.");break;
     case"map-lock":show.mapLocked=!show.mapLocked;save();syncLockBtn();toast(show.mapLocked?"Mapping locked: surfaces and masks can't be dragged by accident. Cues and the timeline still work.":"Mapping unlocked.");break;
     case"help":openHelp();break;
+    case"cam-add":openCamPicker(null);break;
+    case"cam-pick":openCamPicker(b.dataset.id);break;
+    case"cam-rescan":openCamPicker(camPickFor);break;
+    case"cam-close":closeCamPicker();break;
+    case"cam-choose":chooseCam(b.dataset.id,b.dataset.label);break;
     case"aud-open":openAudioSetup();break;
     case"aud-close":closeAudioSetup();break;
     case"spk-test":{const sp=AU().speakers.find(x=>x.id===b.dataset.id);if(sp)testSpeaker(sp);break;}
@@ -3182,7 +3238,7 @@ function renderWiz(){
       </div></div>
       <div class="wz-foot"><button class="btn" data-act="wz-back">← Projector</button><span class="wz-count">${n} surface${n===1?"":"s"} selected</span><button class="btn primary" data-act="wz-next" ${n?"":"disabled"}>Next: what plays →</button></div>`;
   }else{
-    const tgt=wizTarget(w);const vids=show.media.filter(m=>m.kind==="video"||m.kind==="image"),effs=show.media.filter(m=>m.kind==="gen");
+    const tgt=wizTarget(w);const vids=show.media.filter(m=>m.kind==="video"||m.kind==="image"||m.kind==="camera"),effs=show.media.filter(m=>m.kind==="gen");
     const tile=m=>`<button class="pk-item${w.mediaId===m.id?" on":""}" data-act="wz-media" data-id="${m.id}" ${missing(m)?"disabled":""}><span class="pk-th" style="${swatchCSS(m)}"></span><span>${esc(m.name)}</span></button>`;
     h+=`<div class="wz-sum">
         <button data-act="wz-step" data-v="2"><span>On</span>${esc(targetLabel(tgt))}</button>
@@ -3329,7 +3385,7 @@ function onKey(e){
     if(e.key==="Enter"){e.preventDefault();finishDrawing();return;}
     if(e.key==="Backspace"){e.preventDefault();rt.drawing.pts.pop();renderPanel();return;}
   }
-  if(e.key==="Escape"){e.preventDefault();if($("#helpModal")&&!$("#helpModal").hidden){closeHelp();return;}if($("#audModal")&&!$("#audModal").hidden){closeAudioSetup();return;}if(rt.wiz){wizClose();return;}if($("#scrModal")&&!$("#scrModal").hidden){closeScreenPicker();return;}if(!$("#projModal").hidden&&$("#confirm").hidden){closeProjects();return;}if(!$("#picker").hidden){closePicker();return;}if(!$("#confirm").hidden){closeConfirm();return;}if(!$("#modal").hidden){$("#modal").hidden=true;return;}if([...document.querySelectorAll(".menu")].some(m=>!m.hidden)){closeMenus();return;}panic();return;}
+  if(e.key==="Escape"){e.preventDefault();if($("#helpModal")&&!$("#helpModal").hidden){closeHelp();return;}if($("#audModal")&&!$("#audModal").hidden){closeAudioSetup();return;}if($("#camModal")&&!$("#camModal").hidden){closeCamPicker();return;}if(rt.wiz){wizClose();return;}if($("#scrModal")&&!$("#scrModal").hidden){closeScreenPicker();return;}if(!$("#projModal").hidden&&$("#confirm").hidden){closeProjects();return;}if(!$("#picker").hidden){closePicker();return;}if(!$("#confirm").hidden){closeConfirm();return;}if(!$("#modal").hidden){$("#modal").hidden=true;return;}if([...document.querySelectorAll(".menu")].some(m=>!m.hidden)){closeMenus();return;}panic();return;}
   if(rt.wiz){if(e.key==="Enter"&&!typing){e.preventDefault();if(rt.wiz.step<3){if(rt.wiz.step===1||wizSelCount(rt.wiz))rt.wiz.step++;renderWiz();}else wizCommit();}return;}
   if(typing)return;
   if(e.key==="?"){e.preventDefault();openHelp();return;}

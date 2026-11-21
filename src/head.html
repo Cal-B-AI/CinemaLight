@@ -482,6 +482,9 @@ body.tl-mode .side-bin .bin-head{flex-wrap:wrap}
 .clip.off{filter:grayscale(1);opacity:.45}
 .ln-btn.wide{width:20px;font:600 13px var(--f-body);line-height:1}
 body.blade .clip{cursor:crosshair}
+.cammodal{width:min(560px,100%);display:flex;flex-direction:column;gap:12px}
+.cam-prev{position:relative;border-radius:6px;overflow:hidden;background:#000;aspect-ratio:16/9;margin:4px 0 8px}.cam-prev video{width:100%;height:100%;object-fit:contain;display:block}
+.cam-st{position:absolute;left:8px;bottom:6px;font:600 11px var(--f-body);background:rgba(0,0,0,.65);padding:2px 6px;border-radius:3px;color:#ffb4b6}
 </style>
 
 <header class="top">
@@ -551,6 +554,7 @@ body.blade .clip{cursor:crosshair}
           <option value="">+ Effect…</option>
         </select>
         <label class="btn" for="fileIn">+ Upload video, image or audio</label>
+        <button class="btn" data-act="cam-add" title="Use a live camera or capture card as a source">+ Camera</button>
         <input id="fileIn" type="file" multiple accept="video/*,image/*,audio/*,.mov,.m4v,.mkv,.avi,.heic,.mp3,.wav,.m4a,.aif,.aiff" class="sr">
       </div>
       <div class="libbar" id="libBar"></div>
